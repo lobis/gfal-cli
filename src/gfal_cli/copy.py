@@ -12,6 +12,7 @@ import zlib
 from pathlib import Path
 
 from gfal_cli import base, fs
+from gfal_cli import tpc as tpc_mod
 from gfal_cli.progress import Progress
 
 
@@ -64,6 +65,33 @@ class CommandCopy(base.CommandBase):
         type=int,
         default=0,
         help="per-file transfer timeout in seconds (0 = no per-file timeout)",
+    )
+    @base.arg(
+        "--tpc",
+        action="store_true",
+        help="attempt third-party copy (data flows server-to-server); "
+        "falls back to streaming if the server does not support it",
+    )
+    @base.arg(
+        "--tpc-only",
+        action="store_true",
+        help="require third-party copy; fail without streaming fallback",
+    )
+    @base.arg(
+        "--tpc-mode",
+        type=str,
+        choices=["pull", "push"],
+        default="pull",
+        help="TPC direction: pull = dst pulls from src (default), "
+        "push = src pushes to dst",
+    )
+    @base.arg(
+        "--scitag",
+        type=int,
+        default=None,
+        metavar="N",
+        help="SciTag flow identifier [65-65535] forwarded as HTTP header "
+        "(HTTP TPC only; for WLCG network monitoring)",
     )
     @base.arg("src", type=base.surl, nargs="?", help="source URI")
     @base.arg(
@@ -171,6 +199,40 @@ class CommandCopy(base.CommandBase):
             dst_url = dst_url.rstrip("/") + "/" + name
             dst_fs, dst_path = fs.url_to_fs(dst_url, opts)
 
+        # ------------------------------------------------------------------
+        # Third-party copy attempt
+        # ------------------------------------------------------------------
+        use_tpc = getattr(self.params, "tpc", False) or getattr(
+            self.params, "tpc_only", False
+        )
+        if use_tpc and not self.params.dry_run:
+            tpc_timeout = getattr(self.params, "transfer_timeout", 0) or None
+            try:
+                tpc_mod.do_tpc(
+                    src_url,
+                    dst_url,
+                    opts,
+                    mode=getattr(self.params, "tpc_mode", "pull"),
+                    timeout=tpc_timeout,
+                    verbose=bool(self.params.verbose),
+                    scitag=getattr(self.params, "scitag", None),
+                )
+                return  # TPC succeeded — nothing more to do
+            except NotImplementedError as e:
+                if getattr(self.params, "tpc_only", False):
+                    raise OSError(
+                        f"Third-party copy required (--tpc-only) but not available: {e}"
+                    ) from e
+                # Fall through to streaming copy
+                if self.params.verbose:
+                    sys.stderr.write(
+                        f"TPC not available ({e}), falling back to streaming\n"
+                    )
+            # Any other exception propagates as a real error
+
+        # ------------------------------------------------------------------
+        # Streaming (client-side) copy with optional per-file timeout
+        # ------------------------------------------------------------------
         transfer_timeout = getattr(self.params, "transfer_timeout", 0)
         if transfer_timeout and transfer_timeout > 0:
             exc_holder = [None]

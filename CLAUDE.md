@@ -23,6 +23,7 @@ src/gfal_cli/
   ls.py         gfal-ls (CommandLs)
   copy.py       gfal-cp / gfal-copy (CommandCopy)
   rm.py         gfal-rm (CommandRm)
+  tpc.py        Third-party copy backends (HTTP WebDAV COPY, XRootD CopyProcess)
   utils.py      file_type_str(), file_mode_str() — pure helpers, no fsspec
   progress.py   Terminal progress bar for copy operations
 ```
@@ -109,6 +110,21 @@ When a `str` is required (e.g. for `os.environ`, `ctypes.CDLL`, or third-party A
 `CommandBase._executor()` catches all exceptions in the worker thread and maps them to exit codes. The exception's `errno` attribute is used when present; otherwise exit 1. Broken pipe (EPIPE) is silently swallowed. Tracebacks are never printed to the user.
 
 `CommandBase._format_error(e)` converts exceptions to user-friendly strings. It handles three cases: real OS errors (already have `strerror` in `str(e)`), fsspec-style `OSError` subclasses with no `strerror` (appends POSIX description from the type), and aiohttp `ClientResponseError` with an HTTP `status` code (maps to POSIX description).
+
+## Third-party copy (`tpc.py`)
+
+`gfal-cp` supports TPC via `--tpc` (attempt TPC, fall back to streaming) and `--tpc-only` (require TPC). The dispatch in `copy.py:_do_copy` calls `tpc.do_tpc()` before falling through to `_copy_file`.
+
+**HTTP/HTTPS TPC** — WebDAV `COPY` method:
+- `--tpc-mode pull` (default): client sends `COPY <dst>` with `Source: <src>` — destination pulls.
+- `--tpc-mode push`: client sends `COPY <src>` with `Destination: <dst>` — source pushes.
+- Server may respond `202 Accepted` and stream WLCG performance markers; `_parse_tpc_body` reads them until `success:` / `failure:`.
+- `--scitag N`: appended as `SciTag: N` header (WLCG network monitoring).
+- `NotImplementedError` is raised on HTTP 405/501 so the caller can fall back.
+
+**XRootD TPC** — `root://` to `root://` only, via pyxrootd `CopyProcess(thirdparty=True, force=True)`. Raises `NotImplementedError` when pyxrootd is not installed.
+
+**Fallback logic**: `NotImplementedError` from `do_tpc` is caught in `_do_copy`; unless `--tpc-only` was set the copy continues with client-side streaming. Any other exception propagates as a real error.
 
 ## Intentionally omitted
 
