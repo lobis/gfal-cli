@@ -41,6 +41,9 @@ packages = ["src/gfal_cli"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "integration: tests that require network access to external services",
+]
 
 [tool.ruff]
 src = ["src", "tests"]

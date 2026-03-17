@@ -13,6 +13,23 @@ CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB
 
 
 # ---------------------------------------------------------------------------
+# SSL helpers
+# ---------------------------------------------------------------------------
+
+
+async def _no_verify_get_client(loop=None, **kwargs):
+    """aiohttp client factory that skips SSL certificate verification."""
+    import ssl as _ssl
+
+    import aiohttp
+
+    ctx = _ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = _ssl.CERT_NONE
+    return aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ctx))
+
+
+# ---------------------------------------------------------------------------
 # URL helpers
 # ---------------------------------------------------------------------------
 
@@ -51,7 +68,10 @@ def url_to_fs(url, storage_options=None):
     scheme = parsed.scheme.lower()
 
     if scheme in ("http", "https"):
-        fs = fsspec.filesystem("http", **storage_options)
+        opts = {k: v for k, v in storage_options.items() if k != "ssl_verify"}
+        if not storage_options.get("ssl_verify", True):
+            opts["get_client"] = _no_verify_get_client
+        fs = fsspec.filesystem("http", **opts)
         return fs, url
 
     if scheme in ("root", "xroot"):
@@ -73,6 +93,8 @@ def build_storage_options(params):
     if getattr(params, "cert", None):
         opts["client_cert"] = params.cert
         opts["client_key"] = params.key or params.cert
+    if not getattr(params, "ssl_verify", True):
+        opts["ssl_verify"] = False
     return opts
 
 

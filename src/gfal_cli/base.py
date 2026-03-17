@@ -140,6 +140,13 @@ class CommandBase:
             default=None,
             help="write log output to this file instead of stderr",
         )
+        self.parser.add_argument(
+            "--no-verify",
+            dest="ssl_verify",
+            action="store_false",
+            default=True,
+            help="skip SSL certificate verification (insecure; for self-signed certs)",
+        )
 
         for args, kwargs in getattr(func, "arguments", []):
             self.parser.add_argument(*args, **kwargs)

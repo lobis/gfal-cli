@@ -32,5 +32,20 @@ jobs:
     - name: Install package and test dependencies
       run: pip install ".[dev]"
 
-    - name: Run tests
-      run: pytest tests/ -v
+    - name: Run unit and functional tests
+      run: pytest tests/ -v -m "not integration"
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+
+    - name: Install package and test dependencies
+      run: pip install ".[dev]"
+
+    - name: Run integration tests (eospublic.cern.ch)
+      run: pytest tests/ -v -m integration
