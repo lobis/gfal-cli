@@ -68,15 +68,13 @@ fsspec/aiohttp raise `ClientResponseError` (not an `OSError`) for HTTP errors. `
 
 ### XRootD on macOS (pip-installed)
 
-The `xrootd` pip package installs security plugins (`libXrdSecgsi-5.so`, `libXrdSeckrb5-5.so`, etc.) inside the `pyxrootd` package directory. On macOS the dynamic linker does not look there, so GSI auth fails with "Could not load authentication handler". Fix by setting `DYLD_LIBRARY_PATH`:
+The `xrootd` pip package embeds Linux-style `$ORIGIN` RPATHs in its `.dylib` files. macOS dyld does not expand `$ORIGIN`, so the XRootD security plugins (GSI, kerberos, …) fail to load with "Could not load authentication handler" unless the `pyxrootd` directory is in `DYLD_LIBRARY_PATH` at process startup.
 
-```bash
-export DYLD_LIBRARY_PATH="$(python3 -c 'import pyxrootd,os; print(os.path.dirname(pyxrootd.__file__))'):$DYLD_LIBRARY_PATH"
-export X509_USER_PROXY=/tmp/x509up_u<uid>
-gfal-ls "root://eospublic.cern.ch//eos/opendata/atlas/rucio/data16_13TeV/"
-```
+**This is handled automatically.** `shell.main()` calls `_ensure_xrootd_dylib_path()` which re-execs the process with `DYLD_LIBRARY_PATH` set before any XRootD code loads. The re-exec only happens when invoked as a real binary on disk (`os.path.isfile(sys.argv[0])`) to avoid interfering with tests or `-c` invocations. Linux is unaffected.
 
-This is a macOS-only issue; on Linux the `.so` files are installed system-wide and are found automatically.
+### X509 proxy auto-detection
+
+If `X509_USER_PROXY` is not set and no `--cert` flag is given, `base.py:execute()` automatically looks for a proxy at `/tmp/x509up_u<uid>` (the standard location written by `voms-proxy-init`). No environment setup needed for typical CERN workflows.
 
 ## Common args (every command)
 

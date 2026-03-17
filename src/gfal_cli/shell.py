@@ -2,8 +2,48 @@
 Entry point: maps gfal-<cmd> executable names to execute_<cmd> methods.
 """
 
+import os
 import sys
 from pathlib import Path
+
+
+def _ensure_xrootd_dylib_path():
+    """macOS-only: ensure the pyxrootd plugin directory is in DYLD_LIBRARY_PATH.
+
+    The pip-packaged xrootd .dylib files embed $ORIGIN-style RPATHs (a Linux
+    convention) which macOS dyld does not expand.  As a result the XRootD
+    security plugins (GSI, kerberos, …) fail to load unless the containing
+    directory is on DYLD_LIBRARY_PATH.
+
+    dyld processes DYLD_LIBRARY_PATH only at process startup, so we must
+    re-exec the current process with the updated environment before any XRootD
+    code is loaded.  The re-exec is skipped when DYLD_LIBRARY_PATH already
+    contains the plugin directory (i.e. on the second invocation).
+    """
+    if sys.platform != "darwin":
+        return
+    try:
+        import pyxrootd as _px
+    except ImportError:
+        return  # xrootd not installed — nothing to fix
+
+    plugin_dir = os.path.dirname(_px.__file__)
+    current = os.environ.get("DYLD_LIBRARY_PATH", "")
+    if plugin_dir in current.split(":"):
+        return  # already set — no re-exec needed
+
+    # Only re-exec when invoked as a real executable on disk.
+    # When imported via `python3 -c "..."` or as a module, sys.argv[0] is
+    # either '-c', '-m', or a bare name that isn't a file — re-exec in those
+    # cases would either lose the inline script or try to run a non-existent
+    # file as a Python script.
+    if not os.path.isfile(sys.argv[0]):
+        return
+
+    new_env = os.environ.copy()
+    new_env["DYLD_LIBRARY_PATH"] = f"{plugin_dir}:{current}" if current else plugin_dir
+    os.execve(sys.executable, [sys.executable] + sys.argv, new_env)
+
 
 from gfal_cli import (
     base,
@@ -51,6 +91,8 @@ def _command_from_argv0(argv0):
 
 
 def main(argv=None):
+    _ensure_xrootd_dylib_path()
+
     if argv is None:
         argv = sys.argv
 

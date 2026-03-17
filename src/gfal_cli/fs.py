@@ -13,6 +13,15 @@ CHUNK_SIZE = 4 * 1024 * 1024  # 4 MiB
 
 
 # ---------------------------------------------------------------------------
+# XRootD plugin path fix (macOS)
+# ---------------------------------------------------------------------------
+
+
+def _fix_xrootd_plugin_path():
+    """No-op: the DYLD_LIBRARY_PATH fix is handled at startup in shell.py."""
+
+
+# ---------------------------------------------------------------------------
 # SSL helpers
 # ---------------------------------------------------------------------------
 
@@ -75,6 +84,7 @@ def url_to_fs(url, storage_options=None):
         return fs, url
 
     if scheme in ("root", "xroot"):
+        _fix_xrootd_plugin_path()
         try:
             fs, path = fsspec.url_to_fs(url, **storage_options)
         except Exception as e:
