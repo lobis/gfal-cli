@@ -1,84 +1,108 @@
 """Tests for gfal-cat."""
 
-from helpers import run_gfal
+from helpers import run_gfal, run_gfal_binary
+
+# ---------------------------------------------------------------------------
+# Basic cat
+# ---------------------------------------------------------------------------
 
 
-def test_cat_single_file(tmp_path):
-    f = tmp_path / "test.txt"
-    f.write_text("hello world\n")
+class TestCatBasic:
+    def test_single_file(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("hello world\n")
 
-    rc, out, err = run_gfal("cat", f.as_uri())
+        rc, out, err = run_gfal("cat", f.as_uri())
 
-    assert rc == 0
-    assert out == "hello world\n"
+        assert rc == 0
+        assert out == "hello world\n"
 
+    def test_empty_file(self, tmp_path):
+        f = tmp_path / "empty.txt"
+        f.write_bytes(b"")
 
-def test_cat_binary_content(tmp_path):
-    """Content is passed through as-is; we check the byte count via len."""
-    data = bytes(range(256))
-    f = tmp_path / "binary.bin"
-    f.write_bytes(data)
+        rc, out, err = run_gfal("cat", f.as_uri())
 
-    # Run without text mode so we can compare raw bytes
-    import subprocess
-    import sys
+        assert rc == 0
+        assert out == ""
 
-    script = (
-        "import sys; sys.argv=['gfal-cat']+sys.argv[1:];"
-        "from gfal_cli.shell import main; main()"
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", script, f.as_uri()],
-        capture_output=True,
-    )
-    assert proc.returncode == 0
-    assert proc.stdout == data
+    def test_nonexistent(self, tmp_path):
+        rc, out, err = run_gfal("cat", (tmp_path / "no_such_file.txt").as_uri())
+
+        assert rc != 0
 
 
-def test_cat_multiple_files(tmp_path):
-    f1 = tmp_path / "f1.txt"
-    f2 = tmp_path / "f2.txt"
-    f1.write_text("part1")
-    f2.write_text("part2")
-
-    rc, out, err = run_gfal("cat", f1.as_uri(), f2.as_uri())
-
-    assert rc == 0
-    assert out == "part1part2"
+# ---------------------------------------------------------------------------
+# Binary content
+# ---------------------------------------------------------------------------
 
 
-def test_cat_empty_file(tmp_path):
-    f = tmp_path / "empty.txt"
-    f.write_bytes(b"")
+class TestCatBinary:
+    def test_binary_content_preserved(self, tmp_path):
+        """Content is passed through as-is, including null bytes."""
+        data = bytes(range(256))
+        f = tmp_path / "binary.bin"
+        f.write_bytes(data)
 
-    rc, out, err = run_gfal("cat", f.as_uri())
+        rc, stdout, stderr = run_gfal_binary("cat", f.as_uri())
 
-    assert rc == 0
-    assert out == ""
+        assert rc == 0
+        assert stdout == data
+
+    def test_binary_all_zeros(self, tmp_path):
+        data = b"\x00" * 1024
+        f = tmp_path / "zeros.bin"
+        f.write_bytes(data)
+
+        rc, stdout, stderr = run_gfal_binary("cat", f.as_uri())
+
+        assert rc == 0
+        assert stdout == data
 
 
-def test_cat_nonexistent(tmp_path):
-    rc, out, err = run_gfal("cat", (tmp_path / "no_such_file.txt").as_uri())
+# ---------------------------------------------------------------------------
+# Multiple files
+# ---------------------------------------------------------------------------
 
-    assert rc != 0
+
+class TestCatMultiple:
+    def test_multiple_files_concatenated(self, tmp_path):
+        f1 = tmp_path / "f1.txt"
+        f2 = tmp_path / "f2.txt"
+        f1.write_text("part1")
+        f2.write_text("part2")
+
+        rc, out, err = run_gfal("cat", f1.as_uri(), f2.as_uri())
+
+        assert rc == 0
+        assert out == "part1part2"
+
+    def test_three_files(self, tmp_path):
+        files = []
+        for i in range(3):
+            f = tmp_path / f"f{i}.txt"
+            f.write_text(f"chunk{i}")
+            files.append(f)
+
+        rc, out, err = run_gfal("cat", *[f.as_uri() for f in files])
+
+        assert rc == 0
+        assert out == "chunk0chunk1chunk2"
 
 
-def test_cat_large_file(tmp_path):
-    """Content across multiple read chunks (> 4 MiB)."""
-    data = b"Z" * (5 * 1024 * 1024)
-    f = tmp_path / "large.bin"
-    f.write_bytes(data)
+# ---------------------------------------------------------------------------
+# Large files (> CHUNK_SIZE)
+# ---------------------------------------------------------------------------
 
-    import subprocess
-    import sys
 
-    script = (
-        "import sys; sys.argv=['gfal-cat']+sys.argv[1:];"
-        "from gfal_cli.shell import main; main()"
-    )
-    proc = subprocess.run(
-        [sys.executable, "-c", script, f.as_uri()],
-        capture_output=True,
-    )
-    assert proc.returncode == 0
-    assert proc.stdout == data
+class TestCatLargeFile:
+    def test_large_file(self, tmp_path):
+        """Content across multiple read chunks (> 4 MiB)."""
+        data = b"Z" * (5 * 1024 * 1024)
+        f = tmp_path / "large.bin"
+        f.write_bytes(data)
+
+        rc, stdout, stderr = run_gfal_binary("cat", f.as_uri())
+
+        assert rc == 0
+        assert stdout == data

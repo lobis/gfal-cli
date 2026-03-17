@@ -6,9 +6,7 @@ These tests exercise real HTTP and XRootD endpoints.  They are marked
 ``-m integration`` to include them.
 
 The CI workflow installs the CERN Root CA 2 certificate into the system
-trust store and sets ``SSL_CERT_FILE`` / ``REQUESTS_CA_BUNDLE`` so that
-both aiohttp and requests accept the server certificate without any
-``--no-verify`` workaround.
+trust store so that both aiohttp and requests accept the server certificate.
 
 Known stable test file
 ----------------------
@@ -26,6 +24,7 @@ limited to single-file stat calls; directory ls is covered by the XRootD
 tests that use the ``root://`` scheme.
 """
 
+import hashlib
 import socket
 
 import pytest
@@ -89,84 +88,111 @@ _SMALL_FILE_SIZE = 2184
 _SMALL_FILE_MD5 = "93f402e24c6f870470e1c5fcc5400e25"
 _SMALL_FILE_ADLER32 = "335e754f"
 
+# A directory known to exist on eospublic
+_DIR_HTTP = f"{_BASE_HTTP}/phenix/emcal-finding-pi0s-and-photons/"
+_DIR_ROOT = f"{_BASE_ROOT}/phenix/emcal-finding-pi0s-and-photons/"
+
 # ---------------------------------------------------------------------------
 # HTTP tests
 # ---------------------------------------------------------------------------
 
 
 @requires_http
-def test_http_stat_file():
-    rc, out, err = run_gfal("stat", _SMALL_FILE_HTTP)
+class TestHttpStat:
+    def test_stat_file(self):
+        rc, out, err = run_gfal("stat", _SMALL_FILE_HTTP)
 
-    assert rc == 0
-    assert str(_SMALL_FILE_SIZE) in out
-    assert "File:" in out
+        assert rc == 0
+        assert str(_SMALL_FILE_SIZE) in out
+        assert "File:" in out
 
+    def test_stat_shows_regular_file(self):
+        rc, out, err = run_gfal("stat", _SMALL_FILE_HTTP)
 
-@requires_http
-def test_http_stat_shows_regular_file():
-    rc, out, err = run_gfal("stat", _SMALL_FILE_HTTP)
+        assert rc == 0
+        assert "regular file" in out
 
-    assert rc == 0
-    assert "regular file" in out
+    def test_stat_opendata_dir(self):
+        """Stat the opendata directory URL.
 
+        Note: fsspec's HTTP filesystem does not detect directory type from a plain
+        HTTP response — it reports 'regular file' for directory URLs.  We only
+        verify the command succeeds and returns stat output.
+        """
+        rc, out, err = run_gfal("stat", f"{_BASE_HTTP}/")
 
-@requires_http
-def test_http_cat_file():
-    rc, out, err = run_gfal("cat", _SMALL_FILE_HTTP)
-
-    assert rc == 0
-    assert len(out) == _SMALL_FILE_SIZE
-
-
-@requires_http
-def test_http_sum_md5(tmp_path):
-    rc, out, err = run_gfal("sum", _SMALL_FILE_HTTP, "MD5")
-
-    assert rc == 0
-    assert _SMALL_FILE_MD5 in out
+        assert rc == 0
+        assert "File:" in out
 
 
 @requires_http
-def test_http_sum_adler32(tmp_path):
-    rc, out, err = run_gfal("sum", _SMALL_FILE_HTTP, "ADLER32")
+class TestHttpCat:
+    def test_cat_file(self):
+        rc, out, err = run_gfal("cat", _SMALL_FILE_HTTP)
 
-    assert rc == 0
-    assert _SMALL_FILE_ADLER32 in out
+        assert rc == 0
+        assert len(out) == _SMALL_FILE_SIZE
 
+    def test_cat_file_content_checksum(self):
+        """Verify the actual content matches the known MD5."""
+        from helpers import run_gfal_binary
 
-@requires_http
-def test_http_copy_file(tmp_path):
-    dst = tmp_path / "downloaded.C"
+        rc, stdout, stderr = run_gfal_binary("cat", _SMALL_FILE_HTTP)
 
-    rc, out, err = run_gfal("cp", _SMALL_FILE_HTTP, dst.as_uri())
-
-    assert rc == 0
-    assert dst.stat().st_size == _SMALL_FILE_SIZE
-
-
-@requires_http
-def test_http_copy_file_checksum(tmp_path):
-    dst = tmp_path / "downloaded.C"
-
-    rc, out, err = run_gfal("cp", "-K", "ADLER32", _SMALL_FILE_HTTP, dst.as_uri())
-
-    assert rc == 0
-    assert dst.stat().st_size == _SMALL_FILE_SIZE
+        assert rc == 0
+        assert hashlib.md5(stdout).hexdigest() == _SMALL_FILE_MD5
 
 
 @requires_http
-def test_http_stat_opendata_dir():
-    """Stat the opendata directory URL.
+class TestHttpSum:
+    def test_sum_md5(self):
+        rc, out, err = run_gfal("sum", _SMALL_FILE_HTTP, "MD5")
 
-    Note: fsspec's HTTP filesystem does not detect directory type from a plain
-    HTTP response — it reports 'regular file' for directory URLs.  We only
-    verify the command succeeds and returns stat output.
-    """
-    rc, out, err = run_gfal("stat", f"{_BASE_HTTP}/")
+        assert rc == 0
+        assert _SMALL_FILE_MD5 in out
 
-    assert rc == 0
-    assert "File:" in out
+    def test_sum_adler32(self):
+        rc, out, err = run_gfal("sum", _SMALL_FILE_HTTP, "ADLER32")
+
+        assert rc == 0
+        assert _SMALL_FILE_ADLER32 in out
+
+    def test_sum_sha256(self):
+        """SHA256 should also work (client-side computation)."""
+        rc, out, err = run_gfal("sum", _SMALL_FILE_HTTP, "SHA256")
+
+        assert rc == 0
+        # Just verify it produces a 64-char hex string
+        parts = out.strip().split()
+        assert len(parts) == 2
+        assert len(parts[1]) == 64
+
+
+@requires_http
+class TestHttpCopy:
+    def test_copy_file(self, tmp_path):
+        dst = tmp_path / "downloaded.C"
+
+        rc, out, err = run_gfal("cp", _SMALL_FILE_HTTP, dst.as_uri())
+
+        assert rc == 0
+        assert dst.stat().st_size == _SMALL_FILE_SIZE
+
+    def test_copy_file_checksum(self, tmp_path):
+        dst = tmp_path / "downloaded.C"
+
+        rc, out, err = run_gfal("cp", "-K", "ADLER32", _SMALL_FILE_HTTP, dst.as_uri())
+
+        assert rc == 0
+        assert dst.stat().st_size == _SMALL_FILE_SIZE
+
+    def test_copy_file_md5_verify(self, tmp_path):
+        dst = tmp_path / "downloaded.C"
+
+        rc, out, err = run_gfal("cp", "-K", "MD5", _SMALL_FILE_HTTP, dst.as_uri())
+
+        assert rc == 0
+        assert hashlib.md5(dst.read_bytes()).hexdigest() == _SMALL_FILE_MD5
 
 
 # ---------------------------------------------------------------------------
@@ -175,42 +201,91 @@ def test_http_stat_opendata_dir():
 
 
 @requires_xrootd
-def test_xrootd_stat_file():
-    rc, out, err = run_gfal("stat", _SMALL_FILE_ROOT)
+class TestXrootdStat:
+    def test_stat_file(self):
+        rc, out, err = run_gfal("stat", _SMALL_FILE_ROOT)
 
-    assert rc == 0
-    assert str(_SMALL_FILE_SIZE) in out
+        assert rc == 0
+        assert str(_SMALL_FILE_SIZE) in out
 
+    def test_stat_directory(self):
+        rc, out, err = run_gfal("stat", f"{_BASE_ROOT}/phenix/")
 
-@requires_xrootd
-def test_xrootd_stat_directory():
-    rc, out, err = run_gfal("stat", f"{_BASE_ROOT}/phenix/")
-
-    assert rc == 0
-    assert "directory" in out
-
-
-@requires_xrootd
-def test_xrootd_ls_directory():
-    rc, out, err = run_gfal("ls", f"{_BASE_ROOT}/phenix/")
-
-    assert rc == 0
-    assert "emcal-finding-pi0s-and-photons" in out
+        assert rc == 0
+        assert "directory" in out
 
 
 @requires_xrootd
-def test_xrootd_sum_adler32():
-    rc, out, err = run_gfal("sum", _SMALL_FILE_ROOT, "ADLER32")
+class TestXrootdLs:
+    def test_ls_directory(self):
+        rc, out, err = run_gfal("ls", f"{_BASE_ROOT}/phenix/")
 
-    assert rc == 0
-    assert _SMALL_FILE_ADLER32 in out
+        assert rc == 0
+        assert "emcal-finding-pi0s-and-photons" in out
+
+    def test_ls_long_format(self):
+        rc, out, err = run_gfal("ls", "-l", _DIR_ROOT)
+
+        assert rc == 0
+        assert "single_cluster_r5.C" in out
+
+    def test_ls_directory_flag(self):
+        rc, out, err = run_gfal("ls", "-d", _DIR_ROOT)
+
+        assert rc == 0
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        assert len(lines) == 1
 
 
 @requires_xrootd
-def test_xrootd_copy_file(tmp_path):
-    dst = tmp_path / "downloaded.C"
+class TestXrootdSum:
+    def test_sum_adler32(self):
+        rc, out, err = run_gfal("sum", _SMALL_FILE_ROOT, "ADLER32")
 
-    rc, out, err = run_gfal("cp", _SMALL_FILE_ROOT, dst.as_uri())
+        assert rc == 0
+        assert _SMALL_FILE_ADLER32 in out
 
-    assert rc == 0
-    assert dst.stat().st_size == _SMALL_FILE_SIZE
+    def test_sum_md5(self):
+        rc, out, err = run_gfal("sum", _SMALL_FILE_ROOT, "MD5")
+
+        assert rc == 0
+        assert _SMALL_FILE_MD5 in out
+
+
+@requires_xrootd
+class TestXrootdCopy:
+    def test_copy_file(self, tmp_path):
+        dst = tmp_path / "downloaded.C"
+
+        rc, out, err = run_gfal("cp", _SMALL_FILE_ROOT, dst.as_uri())
+
+        assert rc == 0
+        assert dst.stat().st_size == _SMALL_FILE_SIZE
+
+    def test_copy_file_checksum(self, tmp_path):
+        dst = tmp_path / "downloaded.C"
+
+        rc, out, err = run_gfal("cp", "-K", "ADLER32", _SMALL_FILE_ROOT, dst.as_uri())
+
+        assert rc == 0
+        assert dst.stat().st_size == _SMALL_FILE_SIZE
+
+    def test_copy_preserves_content(self, tmp_path):
+        dst = tmp_path / "downloaded.C"
+
+        rc, out, err = run_gfal("cp", _SMALL_FILE_ROOT, dst.as_uri())
+
+        assert rc == 0
+        assert hashlib.md5(dst.read_bytes()).hexdigest() == _SMALL_FILE_MD5
+
+
+@requires_xrootd
+class TestXrootdCat:
+    def test_cat_file(self):
+        from helpers import run_gfal_binary
+
+        rc, stdout, stderr = run_gfal_binary("cat", _SMALL_FILE_ROOT)
+
+        assert rc == 0
+        assert len(stdout) == _SMALL_FILE_SIZE
+        assert hashlib.md5(stdout).hexdigest() == _SMALL_FILE_MD5

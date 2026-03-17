@@ -25,3 +25,19 @@ def run_gfal(cmd, *args, input=None):
         input=input,
     )
     return proc.returncode, proc.stdout, proc.stderr
+
+
+def run_gfal_binary(cmd, *args, input_bytes=None):
+    """
+    Like run_gfal but captures stdout as raw bytes (for cat/save binary tests).
+    """
+    script = (
+        f"import sys; sys.argv=['gfal-{cmd}']+sys.argv[1:];"
+        "from gfal_cli.shell import main; main()"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script, *[str(a) for a in args]],
+        capture_output=True,
+        input=input_bytes,
+    )
+    return proc.returncode, proc.stdout, proc.stderr
