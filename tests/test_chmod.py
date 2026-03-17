@@ -1,6 +1,15 @@
 """Tests for gfal-chmod."""
 
+import sys
+
+import pytest
+
 from helpers import run_gfal
+
+pytestmark = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX chmod semantics are not available on Windows",
+)
 
 # ---------------------------------------------------------------------------
 # Setting permissions

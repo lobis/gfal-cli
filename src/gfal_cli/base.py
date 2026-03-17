@@ -234,8 +234,9 @@ class CommandBase:
             os.environ["X509_USER_CERT"] = self.params.cert
             os.environ["X509_USER_KEY"] = key
             os.environ.pop("X509_USER_PROXY", None)
-        elif not os.environ.get("X509_USER_PROXY"):
+        elif not os.environ.get("X509_USER_PROXY") and hasattr(os, "getuid"):
             # Auto-detect proxy at the standard location used by voms-proxy-init
+            # (Unix only — os.getuid() is not available on Windows)
             default_proxy = Path(f"/tmp/x509up_u{os.getuid()}")
             if default_proxy.exists():
                 os.environ["X509_USER_PROXY"] = str(default_proxy)

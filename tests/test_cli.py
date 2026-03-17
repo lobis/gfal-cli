@@ -12,6 +12,7 @@ that hasn't run ``pip install -e .``).
 
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -283,6 +284,9 @@ def test_rename_binary(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX chmod semantics not available on Windows"
+)
 def test_chmod_binary(tmp_path):
     f = tmp_path / "test.txt"
     f.write_text("x")
