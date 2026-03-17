@@ -236,9 +236,9 @@ class CommandBase:
             os.environ.pop("X509_USER_PROXY", None)
         elif not os.environ.get("X509_USER_PROXY"):
             # Auto-detect proxy at the standard location used by voms-proxy-init
-            default_proxy = f"/tmp/x509up_u{os.getuid()}"
-            if os.path.exists(default_proxy):
-                os.environ["X509_USER_PROXY"] = default_proxy
+            default_proxy = Path(f"/tmp/x509up_u{os.getuid()}")
+            if default_proxy.exists():
+                os.environ["X509_USER_PROXY"] = str(default_proxy)
 
         self._setup_logger(self.params.verbose, self.params.log_file)
 

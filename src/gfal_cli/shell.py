@@ -6,6 +6,14 @@ import os
 import sys
 from pathlib import Path
 
+from gfal_cli import (
+    base,
+    commands,  # noqa: F401  – registers GfalCommands subclass
+    copy,  # noqa: F401  – registers CommandCopy subclass
+    ls,  # noqa: F401  – registers CommandLs subclass
+    rm,  # noqa: F401  – registers CommandRm subclass
+)
+
 
 def _ensure_xrootd_dylib_path():
     """macOS-only: ensure the pyxrootd plugin directory is in DYLD_LIBRARY_PATH.
@@ -27,7 +35,7 @@ def _ensure_xrootd_dylib_path():
     except ImportError:
         return  # xrootd not installed — nothing to fix
 
-    plugin_dir = os.path.dirname(_px.__file__)
+    plugin_dir = str(Path(_px.__file__).parent)
     current = os.environ.get("DYLD_LIBRARY_PATH", "")
     if plugin_dir in current.split(":"):
         return  # already set — no re-exec needed
@@ -37,21 +45,13 @@ def _ensure_xrootd_dylib_path():
     # either '-c', '-m', or a bare name that isn't a file — re-exec in those
     # cases would either lose the inline script or try to run a non-existent
     # file as a Python script.
-    if not os.path.isfile(sys.argv[0]):
+    if not Path(sys.argv[0]).is_file():
         return
 
     new_env = os.environ.copy()
     new_env["DYLD_LIBRARY_PATH"] = f"{plugin_dir}:{current}" if current else plugin_dir
     os.execve(sys.executable, [sys.executable] + sys.argv, new_env)
 
-
-from gfal_cli import (
-    base,
-    commands,  # noqa: F401  – registers GfalCommands subclass
-    copy,  # noqa: F401  – registers CommandCopy subclass
-    ls,  # noqa: F401  – registers CommandLs subclass
-    rm,  # noqa: F401  – registers CommandRm subclass
-)
 
 # ---------------------------------------------------------------------------
 # Command name → (class, method) resolution

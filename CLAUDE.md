@@ -82,6 +82,22 @@ If `X509_USER_PROXY` is not set and no `--cert` flag is given, `base.py:execute(
 
 These are added automatically by `CommandBase.parse()`. Do not re-declare them in individual commands.
 
+## Code style
+
+ruff is configured as a pre-commit hook and enforces the `PTH` rule family: always use `pathlib.Path` methods instead of `os.path` equivalents. Key mappings:
+
+| `os.path` | `Path` equivalent |
+|-----------|-------------------|
+| `os.path.exists(p)` | `Path(p).exists()` |
+| `os.path.isfile(p)` | `Path(p).is_file()` |
+| `os.path.isdir(p)` | `Path(p).is_dir()` |
+| `os.path.dirname(p)` | `Path(p).parent` |
+| `os.path.basename(p)` | `Path(p).name` |
+| `os.path.join(a, b)` | `Path(a) / b` |
+| `os.listdir(p)` | `list(Path(p).iterdir())` |
+
+When a `str` is required (e.g. for `os.environ`, `ctypes.CDLL`, or third-party APIs that don't accept `Path`), use `str(Path(...))` or call `.parent` then `str()`.
+
 ## Error handling
 
 `CommandBase._executor()` catches all exceptions in the worker thread and maps them to exit codes. The exception's `errno` attribute is used when present; otherwise exit 1. Broken pipe (EPIPE) is silently swallowed. Tracebacks are never printed to the user.
