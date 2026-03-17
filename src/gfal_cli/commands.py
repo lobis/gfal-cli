@@ -87,12 +87,23 @@ class GfalCommands(base.CommandBase):
     # stat
     # ------------------------------------------------------------------
 
-    @base.arg("file", type=base.surl, help="URI to stat")
+    @base.arg("file", nargs="+", type=base.surl, help="URI(s) to stat")
     def execute_stat(self):
         """Display file status."""
         opts = fs.build_storage_options(self.params)
-        st = fs.stat(self.params.file, opts)
-        print(f"  File: '{self.params.file}'")
+        rc = 0
+        for url in self.params.file:
+            try:
+                self._stat_one(url, opts)
+            except Exception as e:
+                sys.stderr.write(f"{self.progr}: {self._format_error(e)}\n")
+                ecode = getattr(e, "errno", None)
+                rc = ecode if ecode and 0 < ecode <= 255 else 1
+        return rc
+
+    def _stat_one(self, url, opts):
+        st = fs.stat(url, opts)
+        print(f"  File: '{url}'")
         print(f"  Size: {st.st_size}\t{file_type_str(stat.S_IFMT(st.st_mode))}")
         print(
             f"Access: ({stat.S_IMODE(st.st_mode):04o}/{file_mode_str(st.st_mode)})\tUid: {st.st_uid}\tGid: {st.st_gid}"
@@ -133,7 +144,7 @@ class GfalCommands(base.CommandBase):
     # ------------------------------------------------------------------
 
     @base.arg("mode", type=str, help="new permissions in octal (e.g. 0755)")
-    @base.arg("file", type=base.surl, help="URI of the file")
+    @base.arg("file", nargs="+", type=base.surl, help="URI(s) of the file(s)")
     def execute_chmod(self):
         """Change file permissions."""
         try:
@@ -142,8 +153,16 @@ class GfalCommands(base.CommandBase):
             self.parser.error("Mode must be an octal number (e.g. 0755)")
             return 1
         opts = fs.build_storage_options(self.params)
-        fso, path = fs.url_to_fs(self.params.file, opts)
-        fso.chmod(path, mode)
+        rc = 0
+        for url in self.params.file:
+            try:
+                fso, path = fs.url_to_fs(url, opts)
+                fso.chmod(path, mode)
+            except Exception as e:
+                sys.stderr.write(f"{self.progr}: {self._format_error(e)}\n")
+                ecode = getattr(e, "errno", None)
+                rc = ecode if ecode and 0 < ecode <= 255 else 1
+        return rc
 
     # ------------------------------------------------------------------
     # sum  (checksum)
@@ -242,6 +261,10 @@ def _compute_checksum(fso, path, alg):
                 value = zlib.crc32(chunk, value) & 0xFFFFFFFF
         return f"{value:08x}"
 
+    if alg_upper == "CRC32C":
+        value = _crc32c_file(fso, path)
+        return f"{value:08x}"
+
     # For MD5, SHA*, etc. use hashlib
     name = alg_upper.lower().replace("-", "")  # sha256, md5, …
     try:
@@ -256,3 +279,64 @@ def _compute_checksum(fso, path, alg):
                 break
             h.update(chunk)
     return h.hexdigest()
+
+
+def _crc32c_file(fso, path):
+    """Compute CRC32C checksum. Uses the crc32c package if available, otherwise
+    falls back to crcmod (if installed) or a pure-Python polynomial."""
+    try:
+        import crc32c as _crc32c
+
+        value = 0
+        with fso.open(path, "rb") as f:
+            while True:
+                chunk = f.read(fs.CHUNK_SIZE)
+                if not chunk:
+                    break
+                value = _crc32c.crc32c(chunk, value)
+        return value & 0xFFFFFFFF
+    except ImportError:
+        pass
+
+    try:
+        import crcmod
+
+        crc_fn = crcmod.predefined.mkCrcFun("crc-32c")
+        crc = crc_fn(b"")  # initialise
+        with fso.open(path, "rb") as f:
+            while True:
+                chunk = f.read(fs.CHUNK_SIZE)
+                if not chunk:
+                    break
+                crc = crcmod.predefined.mkCrcFun("crc-32c")(chunk, crc)
+        return crc & 0xFFFFFFFF
+    except (ImportError, Exception):
+        pass
+
+    # Pure-Python fallback (slow but correct; no external deps)
+    return _crc32c_pure(fso, path)
+
+
+def _crc32c_pure(fso, path):
+    """Pure-Python CRC32C using the Castagnoli polynomial 0x82F63B78."""
+    # Build lookup table
+    poly = 0x82F63B78
+    table = []
+    for i in range(256):
+        crc = i
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ poly
+            else:
+                crc >>= 1
+        table.append(crc)
+
+    crc = 0xFFFFFFFF
+    with fso.open(path, "rb") as f:
+        while True:
+            chunk = f.read(fs.CHUNK_SIZE)
+            if not chunk:
+                break
+            for byte in chunk:
+                crc = (crc >> 8) ^ table[(crc ^ byte) & 0xFF]
+    return (~crc) & 0xFFFFFFFF

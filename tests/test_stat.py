@@ -142,3 +142,52 @@ class TestStatTimestamps:
         import re
 
         assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", out)
+
+
+# ---------------------------------------------------------------------------
+# Multiple files
+# ---------------------------------------------------------------------------
+
+
+class TestStatMultipleFiles:
+    def test_two_files(self, tmp_path):
+        a = tmp_path / "a.txt"
+        b = tmp_path / "b.txt"
+        a.write_bytes(b"hello")
+        b.write_bytes(b"world!!")
+
+        rc, out, err = run_gfal("stat", a.as_uri(), b.as_uri())
+
+        assert rc == 0
+        assert "a.txt" in out
+        assert "b.txt" in out
+        assert "5" in out  # size of a.txt
+        assert "7" in out  # size of b.txt
+
+    def test_all_nonexistent(self, tmp_path):
+        rc, out, err = run_gfal(
+            "stat", (tmp_path / "x").as_uri(), (tmp_path / "y").as_uri()
+        )
+        assert rc != 0
+
+    def test_mixed_existing_and_nonexistent(self, tmp_path):
+        a = tmp_path / "a.txt"
+        a.write_text("x")
+
+        rc, out, err = run_gfal("stat", a.as_uri(), (tmp_path / "no_such").as_uri())
+
+        assert rc != 0
+        # The existing file's output is still printed
+        assert "a.txt" in out
+
+    def test_directory_and_file(self, tmp_path):
+        f = tmp_path / "file.txt"
+        f.write_text("data")
+        d = tmp_path / "subdir"
+        d.mkdir()
+
+        rc, out, err = run_gfal("stat", f.as_uri(), d.as_uri())
+
+        assert rc == 0
+        assert "regular file" in out
+        assert "directory" in out

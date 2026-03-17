@@ -94,20 +94,40 @@ class CommandLs(base.CommandBase):
         default="auto",
         help="colorise output",
     )
-    @base.arg("file", type=base.surl, help="URI to list")
+    @base.arg("file", nargs="+", type=base.surl, help="URI(s) to list")
     def execute_ls(self):
         """List directory contents."""
         if self.params.full_time:
             self.params.time_style = "long-iso"
 
         opts = fs.build_storage_options(self.params)
-        fso, path = fs.url_to_fs(self.params.file, opts)
+        multi = len(self.params.file) > 1
+        rc = 0
+        first = True
+        for url in self.params.file:
+            try:
+                r = self._list_one(url, opts, print_header=multi, first=first)
+            except Exception as e:
+                sys.stderr.write(f"{self.progr}: {self._format_error(e)}\n")
+                rc = 1
+            else:
+                if r:
+                    rc = r
+            first = False
+        return rc
+
+    def _list_one(self, url, opts, *, print_header, first):
+        fso, path = fs.url_to_fs(url, opts)
 
         info = fso.info(path)
         st = fs.StatInfo(info)
 
         if self.params.directory:
-            self._print_entry(self.params.file, st)
+            if print_header:
+                if not first:
+                    sys.stdout.write("\n")
+                sys.stdout.write(f"{url}:\n")
+            self._print_entry(url, st)
             return 0
 
         # Always attempt ls() — errors (e.g. 403 on HTTP directories that don't
@@ -123,13 +143,29 @@ class CommandLs(base.CommandBase):
 
         if is_self_only:
             # fsspec returns [the_entry_itself] when path is a file (local/XRootD)
-            self._print_entry(self.params.file, st)
+            if print_header:
+                if not first:
+                    sys.stdout.write("\n")
+                sys.stdout.write(f"{url}:\n")
+            self._print_entry(url, st)
         elif not entries:
             if not stat.S_ISDIR(st.st_mode):
                 # HTTP file: ls() returned nothing; fall back to showing the entry
-                self._print_entry(self.params.file, st)
-            # else: genuinely empty directory — no output
+                if print_header:
+                    if not first:
+                        sys.stdout.write("\n")
+                    sys.stdout.write(f"{url}:\n")
+                self._print_entry(url, st)
+            # else: genuinely empty directory — print header only
+            elif print_header:
+                if not first:
+                    sys.stdout.write("\n")
+                sys.stdout.write(f"{url}:\n")
         else:
+            if print_header:
+                if not first:
+                    sys.stdout.write("\n")
+                sys.stdout.write(f"{url}:\n")
             for entry_info in entries:
                 name = Path(entry_info["name"].rstrip("/")).name
                 if not self.params.all and name.startswith("."):

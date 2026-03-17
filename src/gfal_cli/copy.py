@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import stat
 import sys
+import threading
 import time
 import zlib
 from pathlib import Path
@@ -57,6 +58,12 @@ class CommandCopy(base.CommandBase):
         "--abort-on-failure",
         action="store_true",
         help="stop immediately on first error",
+    )
+    @base.arg(
+        "--transfer-timeout",
+        type=int,
+        default=0,
+        help="per-file transfer timeout in seconds (0 = no per-file timeout)",
     )
     @base.arg("src", type=base.surl, nargs="?", help="source URI")
     @base.arg(
@@ -164,9 +171,37 @@ class CommandCopy(base.CommandBase):
             dst_url = dst_url.rstrip("/") + "/" + name
             dst_fs, dst_path = fs.url_to_fs(dst_url, opts)
 
-        self._copy_file(
-            src_url, src_fs, src_path, dst_url, dst_fs, dst_path, src_st.st_size
-        )
+        transfer_timeout = getattr(self.params, "transfer_timeout", 0)
+        if transfer_timeout and transfer_timeout > 0:
+            exc_holder = [None]
+
+            def _run():
+                try:
+                    self._copy_file(
+                        src_url,
+                        src_fs,
+                        src_path,
+                        dst_url,
+                        dst_fs,
+                        dst_path,
+                        src_st.st_size,
+                    )
+                except Exception as e:
+                    exc_holder[0] = e
+
+            t = threading.Thread(target=_run, daemon=True)
+            t.start()
+            t.join(transfer_timeout)
+            if t.is_alive():
+                raise TimeoutError(
+                    f"Transfer timed out after {transfer_timeout}s: {src_url}"
+                )
+            if exc_holder[0] is not None:
+                raise exc_holder[0]
+        else:
+            self._copy_file(
+                src_url, src_fs, src_path, dst_url, dst_fs, dst_path, src_st.st_size
+            )
 
     def _recursive_copy(
         self, src_url, src_fs, src_path, dst_url, dst_fs, dst_path, opts

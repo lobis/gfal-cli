@@ -143,3 +143,47 @@ class TestChmodErrors:
         rc, out, err = run_gfal("chmod", "644", (tmp_path / "no_such.txt").as_uri())
 
         assert rc != 0
+
+
+# ---------------------------------------------------------------------------
+# Multiple files
+# ---------------------------------------------------------------------------
+
+
+class TestChmodMultipleFiles:
+    def test_two_files(self, tmp_path):
+        a = tmp_path / "a.txt"
+        b = tmp_path / "b.txt"
+        a.write_text("a")
+        b.write_text("b")
+
+        rc, out, err = run_gfal("chmod", "600", a.as_uri(), b.as_uri())
+
+        assert rc == 0
+        assert (a.stat().st_mode & 0o777) == 0o600
+        assert (b.stat().st_mode & 0o777) == 0o600
+
+    def test_many_files(self, tmp_path):
+        files = []
+        for i in range(5):
+            f = tmp_path / f"f{i}.txt"
+            f.write_text("x")
+            files.append(f)
+
+        uris = [f.as_uri() for f in files]
+        rc, out, err = run_gfal("chmod", "644", *uris)
+
+        assert rc == 0
+        for f in files:
+            assert (f.stat().st_mode & 0o777) == 0o644
+
+    def test_partial_failure_continues(self, tmp_path):
+        a = tmp_path / "a.txt"
+        a.write_text("x")
+        missing = tmp_path / "no_such.txt"
+
+        rc, out, err = run_gfal("chmod", "644", a.as_uri(), missing.as_uri())
+
+        # Non-zero overall but the existing file was still chmod'd
+        assert rc != 0
+        assert (a.stat().st_mode & 0o777) == 0o644

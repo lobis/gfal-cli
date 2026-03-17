@@ -227,3 +227,54 @@ class TestSumKnownValues:
         f.write_bytes(b"")
         rc, out, err = run_gfal("sum", f.as_uri(), "CRC32")
         assert "00000000" in out
+
+
+# ---------------------------------------------------------------------------
+# CRC32C
+# ---------------------------------------------------------------------------
+
+
+class TestSumCrc32c:
+    def test_crc32c_empty(self, tmp_path):
+        """CRC32C of empty file is 0x00000000."""
+        f = tmp_path / "empty"
+        f.write_bytes(b"")
+        rc, out, err = run_gfal("sum", f.as_uri(), "CRC32C")
+        assert rc == 0
+        assert "00000000" in out
+
+    def test_crc32c_known_value(self, tmp_path):
+        """CRC32C of b'123456789' is 0xE3069283."""
+        data = b"123456789"
+        f = tmp_path / "data.bin"
+        f.write_bytes(data)
+        rc, out, err = run_gfal("sum", f.as_uri(), "CRC32C")
+        assert rc == 0
+        assert "e3069283" in out.lower()
+
+    def test_crc32c_hello_world(self, tmp_path):
+        """CRC32C of b'hello world' is 0xC99465AA."""
+        data = b"hello world"
+        f = tmp_path / "hw.bin"
+        f.write_bytes(data)
+        rc, out, err = run_gfal("sum", f.as_uri(), "CRC32C")
+        assert rc == 0
+        assert "c99465aa" in out.lower()
+
+    def test_crc32c_lowercase_alias(self, tmp_path):
+        data = b"test"
+        f = tmp_path / "t.bin"
+        f.write_bytes(data)
+        rc, out, err = run_gfal("sum", f.as_uri(), "crc32c")
+        assert rc == 0
+        assert len(out.strip().split()) == 2
+
+    def test_crc32c_output_format(self, tmp_path):
+        f = tmp_path / "f.bin"
+        f.write_bytes(b"abc")
+        rc, out, err = run_gfal("sum", f.as_uri(), "CRC32C")
+        assert rc == 0
+        parts = out.strip().split()
+        assert len(parts) == 2
+        # Checksum should be 8 hex chars
+        assert len(parts[1]) == 8

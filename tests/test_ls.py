@@ -282,3 +282,88 @@ class TestLsPopulatedDir:
         assert "1025" in out  # file size
         lines = [ln for ln in out.splitlines() if ln.strip()]
         assert len(lines) == 3  # f1.bin, f2.bin, subdir
+
+
+# ---------------------------------------------------------------------------
+# Multiple URL listing
+# ---------------------------------------------------------------------------
+
+
+class TestLsMultipleUrls:
+    def test_two_files(self, tmp_path):
+        a = tmp_path / "a.txt"
+        b = tmp_path / "b.txt"
+        a.write_text("A")
+        b.write_text("B")
+
+        rc, out, err = run_gfal("ls", a.as_uri(), b.as_uri())
+
+        assert rc == 0
+        # Both files appear (as headers when multiple URLs)
+        assert "a.txt" in out
+        assert "b.txt" in out
+
+    def test_two_directories(self, tmp_path):
+        d1 = tmp_path / "dir1"
+        d2 = tmp_path / "dir2"
+        d1.mkdir()
+        d2.mkdir()
+        (d1 / "x.txt").write_text("x")
+        (d2 / "y.txt").write_text("y")
+
+        rc, out, err = run_gfal("ls", d1.as_uri(), d2.as_uri())
+
+        assert rc == 0
+        assert "x.txt" in out
+        assert "y.txt" in out
+
+    def test_header_shown_for_multiple_dirs(self, tmp_path):
+        d1 = tmp_path / "dir1"
+        d2 = tmp_path / "dir2"
+        d1.mkdir()
+        d2.mkdir()
+        (d1 / "f.txt").write_text("x")
+        (d2 / "g.txt").write_text("y")
+
+        rc, out, err = run_gfal("ls", d1.as_uri(), d2.as_uri())
+
+        assert rc == 0
+        # Headers like "dir1:" and "dir2:" should appear
+        assert "dir1" in out
+        assert "dir2" in out
+
+    def test_one_nonexistent_continues(self, tmp_path):
+        a = tmp_path / "a.txt"
+        a.write_text("A")
+        missing = tmp_path / "no_such"
+
+        rc, out, err = run_gfal("ls", a.as_uri(), missing.as_uri())
+
+        # Should report error for missing but still list existing
+        assert rc != 0
+        assert "a.txt" in out
+
+    def test_long_format_multiple(self, tmp_path):
+        a = tmp_path / "alpha.txt"
+        b = tmp_path / "beta.txt"
+        a.write_bytes(b"hello")
+        b.write_bytes(b"world!!")
+
+        rc, out, err = run_gfal("ls", "-l", a.as_uri(), b.as_uri())
+
+        assert rc == 0
+        assert "5" in out  # size of alpha.txt
+        assert "7" in out  # size of beta.txt
+
+    def test_single_url_no_header(self, tmp_path):
+        """With a single URL no 'url:\\n' header is printed before contents."""
+        a = tmp_path / "solo.txt"
+        a.write_text("x")
+
+        rc, out, err = run_gfal("ls", a.as_uri())
+
+        assert rc == 0
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        assert len(lines) == 1
+        # A header line ends with ':'; the file URI itself does not end with ':'
+        assert not lines[0].endswith(":")

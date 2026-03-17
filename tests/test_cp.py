@@ -497,3 +497,40 @@ class TestCopyAlias:
 
         assert rc == 0
         assert dst.read_bytes() == b"copy test"
+
+
+# ---------------------------------------------------------------------------
+# --transfer-timeout
+# ---------------------------------------------------------------------------
+
+
+class TestCopyTransferTimeout:
+    def test_transfer_timeout_zero_succeeds(self, tmp_path):
+        """--transfer-timeout=0 means no per-file timeout; copy should succeed."""
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"hello")
+
+        rc, out, err = run_gfal(
+            "cp", "--transfer-timeout", "0", src.as_uri(), dst.as_uri()
+        )
+
+        assert rc == 0
+        assert dst.read_bytes() == b"hello"
+
+    def test_transfer_timeout_generous_succeeds(self, tmp_path):
+        """A generous timeout (600s) should not interfere with a normal copy."""
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"data" * 100)
+
+        rc, out, err = run_gfal(
+            "cp", "--transfer-timeout", "600", src.as_uri(), dst.as_uri()
+        )
+
+        assert rc == 0
+        assert dst.read_bytes() == b"data" * 100
+
+    def test_transfer_timeout_appears_in_help(self):
+        rc, out, err = run_gfal("cp", "--help")
+        assert "transfer-timeout" in out or "transfer-timeout" in err
