@@ -158,7 +158,9 @@ def test_copy_checksum_with_expected_value(tmp_path):
     src.write_bytes(data)
     expected = f"{zlib.adler32(data) & 0xFFFFFFFF:08x}"
 
-    rc, out, err = run_gfal("cp", "-K", f"ADLER32:{expected}", src.as_uri(), dst.as_uri())
+    rc, out, err = run_gfal(
+        "cp", "-K", f"ADLER32:{expected}", src.as_uri(), dst.as_uri()
+    )
 
     assert rc == 0
     assert dst.read_bytes() == data
@@ -195,9 +197,7 @@ def test_copy_from_file(tmp_path):
     sources_file = tmp_path / "sources.txt"
     sources_file.write_text(f"{src.as_uri()}\n")
 
-    rc, out, err = run_gfal(
-        "cp", "--from-file", str(sources_file), dstdir.as_uri()
-    )
+    rc, out, err = run_gfal("cp", "--from-file", str(sources_file), dstdir.as_uri())
 
     assert rc == 0
     assert (dstdir / "src.txt").read_bytes() == b"from-file content"
@@ -226,9 +226,7 @@ def test_copy_abort_on_failure(tmp_path):
     dst1.write_bytes(b"old")
     dst2 = tmp_path / "dst2.txt"
 
-    rc, out, err = run_gfal(
-        "cp", "--abort-on-failure", src.as_uri(), dst1.as_uri()
-    )
+    rc, out, err = run_gfal("cp", "--abort-on-failure", src.as_uri(), dst1.as_uri())
 
     assert rc != 0
     assert dst1.read_bytes() == b"old"

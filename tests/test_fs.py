@@ -6,7 +6,6 @@ import pytest
 
 from gfal_cli.fs import StatInfo, isdir, normalize_url, stat, url_to_fs
 
-
 # ---------------------------------------------------------------------------
 # normalize_url
 # ---------------------------------------------------------------------------
