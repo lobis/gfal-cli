@@ -29,11 +29,21 @@ gfal-chmod = "gfal_cli.shell:main"
 gfal-sum = "gfal_cli.shell:main"
 gfal-xattr = "gfal_cli.shell:main"
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pre-commit>=3.0",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gfal_cli"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.ruff]
-src = ["src"]
+src = ["src", "tests"]
 target-version = "py39"
 
 [tool.ruff.lint]
