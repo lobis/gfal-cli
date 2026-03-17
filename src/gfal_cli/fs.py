@@ -75,8 +75,15 @@ def url_to_fs(url, storage_options=None):
         return fs, url
 
     if scheme in ("root", "xroot"):
-        fs = fsspec.filesystem("root", **storage_options)
-        return fs, url
+        try:
+            fs, path = fsspec.url_to_fs(url, **storage_options)
+        except Exception as e:
+            cause = e.__cause__ or e
+            raise RuntimeError(
+                f"Cannot load XRootD filesystem: {cause}\n"
+                "Install the XRootD Python bindings: python3 -m pip install xrootd"
+            ) from e
+        return fs, path
 
     if scheme == "file":
         fs = fsspec.filesystem("file")

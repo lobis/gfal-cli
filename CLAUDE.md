@@ -45,8 +45,38 @@ To add a new command:
 ### Known fsspec quirks
 
 - `LocalFileSystem.mkdir(path)` raises `FileExistsError` unconditionally if the path exists, even when `create_parents=True`. Use `makedirs(path, exist_ok=True)` for the `-p` flag — already handled in `execute_mkdir`.
+- HTTP `info()` always returns `type='file'` — it cannot distinguish files from directories (just does a HEAD request). `gfal-ls` therefore always calls `fso.ls()` directly and infers type from the result rather than relying on `info()['type']`.
 - HTTP `info()` returns very few fields (no mode, uid, gid, timestamps). `StatInfo` fills in sensible defaults so the rest of the code doesn't need to guard every access.
 - For XRootD the `info()` dict contains a `mode` integer; rely on that rather than synthesising it.
+- XRootD via `fsspec.filesystem("root")` fails — use `fsspec.url_to_fs(url)` instead so fsspec extracts the `hostid` from the URL and passes it to `XRootDFileSystem.__init__()`.
+
+### HTTP error messages
+
+fsspec/aiohttp raise `ClientResponseError` (not an `OSError`) for HTTP errors. `CommandBase._format_error()` maps HTTP status codes to POSIX-style descriptions (403 → "Permission denied", 404 → "No such file or directory") and also handles fsspec-style `FileNotFoundError` instances that carry no `strerror`.
+
+### EOS HTTPS endpoint (eospublic.cern.ch:8444)
+
+- File stat/cat/copy works via HTTPS.
+- Directory listing returns **403 Forbidden** — EOS does not support HTTP directory listing. Use XRootD (`root://`) for directory operations.
+- The server uses the CERN Root CA 2 certificate. Without it installed locally, all HTTPS requests fail with `SSLCertVerificationError`. Use `--no-verify` to skip, or install the CA:
+  ```bash
+  # macOS
+  curl -O https://cafiles.cern.ch/cafiles/certificates/CERN%20Root%20Certification%20Authority%202.crt
+  openssl x509 -inform DER -in "CERN Root Certification Authority 2.crt" -out /tmp/cern-root-ca-2.pem
+  sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/cern-root-ca-2.pem
+  ```
+
+### XRootD on macOS (pip-installed)
+
+The `xrootd` pip package installs security plugins (`libXrdSecgsi-5.so`, `libXrdSeckrb5-5.so`, etc.) inside the `pyxrootd` package directory. On macOS the dynamic linker does not look there, so GSI auth fails with "Could not load authentication handler". Fix by setting `DYLD_LIBRARY_PATH`:
+
+```bash
+export DYLD_LIBRARY_PATH="$(python3 -c 'import pyxrootd,os; print(os.path.dirname(pyxrootd.__file__))'):$DYLD_LIBRARY_PATH"
+export X509_USER_PROXY=/tmp/x509up_u<uid>
+gfal-ls "root://eospublic.cern.ch//eos/opendata/atlas/rucio/data16_13TeV/"
+```
+
+This is a macOS-only issue; on Linux the `.so` files are installed system-wide and are found automatically.
 
 ## Common args (every command)
 
@@ -58,6 +88,8 @@ These are added automatically by `CommandBase.parse()`. Do not re-declare them i
 
 `CommandBase._executor()` catches all exceptions in the worker thread and maps them to exit codes. The exception's `errno` attribute is used when present; otherwise exit 1. Broken pipe (EPIPE) is silently swallowed. Tracebacks are never printed to the user.
 
+`CommandBase._format_error(e)` converts exceptions to user-friendly strings. It handles three cases: real OS errors (already have `strerror` in `str(e)`), fsspec-style `OSError` subclasses with no `strerror` (appends POSIX description from the type), and aiohttp `ClientResponseError` with an HTTP `status` code (maps to POSIX description).
+
 ## Intentionally omitted
 
 - Tape commands: `gfal-bringonline`, `gfal-archivepoll`, `gfal-evict`
@@ -68,7 +100,15 @@ These are added automatically by `CommandBase.parse()`. Do not re-declare them i
 
 ## Testing
 
-There are no automated tests yet. Manual smoke tests against local files:
+pytest test suite lives in `tests/`. Run with:
+
+```bash
+pytest tests/                                    # all unit tests
+pytest tests/ -m integration                     # integration tests (need network)
+pytest tests/test_integration_eospublic.py       # EOS public endpoint tests
+```
+
+Manual smoke tests against local files:
 
 ```bash
 echo "hello" > /tmp/test.txt
