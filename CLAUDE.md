@@ -96,7 +96,7 @@ If `X509_USER_PROXY` is not set and no `--cert` flag is given, `base.py:execute(
 
 `-v / --verbose`, `-t / --timeout`, `-E / --cert`, `--key`, `--log-file`
 
-These are added automatically by `CommandBase.parse()`. Do not re-declare them in individual commands.
+These are added automatically by `CommandBase.parse()`. Do not redeclare them in individual commands.
 
 ## Code style
 
