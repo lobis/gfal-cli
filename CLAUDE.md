@@ -84,6 +84,12 @@ These are added automatically by `CommandBase.parse()`. Do not re-declare them i
 
 ## Code style
 
+After making any code change, run ruff on the modified files before considering the task done:
+
+```bash
+ruff check <file1> <file2> ...
+```
+
 ruff is configured as a pre-commit hook and enforces the `PTH` rule family: always use `pathlib.Path` methods instead of `os.path` equivalents. Key mappings:
 
 | `os.path` | `Path` equivalent |
