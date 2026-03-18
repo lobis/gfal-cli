@@ -191,23 +191,31 @@ class TestUrlToFs:
         with fso.open(path, "rb") as fh:
             assert fh.read() == b"data"
 
-    def test_http_returns_http_fs(self):
+    def test_http_returns_webdav_fs(self):
+        from gfal_cli.webdav import WebDAVFileSystem
+
         fso, path = url_to_fs("http://example.com/file")
-        assert type(fso).__name__ in ("HTTPFileSystem", "HTTPFileSystem")
+        assert isinstance(fso, WebDAVFileSystem)
         assert path == "http://example.com/file"
 
-    def test_https_returns_http_fs(self):
+    def test_https_returns_webdav_fs(self):
+        from gfal_cli.webdav import WebDAVFileSystem
+
         fso, path = url_to_fs("https://example.com/file")
-        assert "HTTP" in type(fso).__name__
+        assert isinstance(fso, WebDAVFileSystem)
 
     def test_dav_normalized_to_http(self):
+        from gfal_cli.webdav import WebDAVFileSystem
+
         fso, path = url_to_fs("dav://example.com/file")
-        assert "HTTP" in type(fso).__name__
+        assert isinstance(fso, WebDAVFileSystem)
         assert path == "http://example.com/file"
 
     def test_davs_normalized_to_https(self):
+        from gfal_cli.webdav import WebDAVFileSystem
+
         fso, path = url_to_fs("davs://example.com/file")
-        assert "HTTP" in type(fso).__name__
+        assert isinstance(fso, WebDAVFileSystem)
         assert path == "https://example.com/file"
 
     def test_storage_options_forwarded(self, tmp_path):

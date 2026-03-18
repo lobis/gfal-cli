@@ -73,7 +73,7 @@ To add a new command:
 ### Known fsspec quirks
 
 - `LocalFileSystem.mkdir(path)` raises `FileExistsError` unconditionally if the path exists, even when `create_parents=True`. Use `makedirs(path, exist_ok=True)` for the `-p` flag — already handled in `execute_mkdir`.
-- HTTP `info()` always returns `type='file'` — it cannot distinguish files from directories (just does a HEAD request). `gfal-ls` therefore always calls `fso.ls()` directly and infers type from the result rather than relying on `info()['type']`.
+- HTTP directory listing, mkdir, and rm now work via WebDAV (`webdav.py`). `ls()` sends `PROPFIND` Depth:1 and parses the `DAV:` XML response. Servers that don't support WebDAV will return 405; `info()` falls back to a plain HEAD request for compatibility with non-WebDAV HTTP servers.
 - HTTP `info()` returns very few fields (no mode, uid, gid, timestamps). `StatInfo` fills in sensible defaults so the rest of the code doesn't need to guard every access.
 - For XRootD the `info()` dict contains a `mode` integer; rely on that rather than synthesising it.
 - XRootD via `fsspec.filesystem("root")` fails — use `fsspec.url_to_fs(url)` instead so fsspec extracts the `hostid` from the URL and passes it to `XRootDFileSystem.__init__()`.
@@ -81,6 +81,22 @@ To add a new command:
 ### HTTP error messages
 
 fsspec/aiohttp raise `ClientResponseError` (not an `OSError`) for HTTP errors. `CommandBase._format_error()` maps HTTP status codes to POSIX-style descriptions (403 → "Permission denied", 404 → "No such file or directory") and also handles fsspec-style `FileNotFoundError` instances that carry no `strerror`.
+
+### HTTP/WebDAV layer (`webdav.py`)
+
+`url_to_fs()` for `http://` and `https://` (including `dav://`/`davs://`) returns a
+`WebDAVFileSystem` (from `webdav.py`) instead of fsspec's plain `HTTPFileSystem`.
+`WebDAVFileSystem` adds:
+- `ls()` — WebDAV `PROPFIND` Depth:1 (parses `DAV:` XML response)
+- `info()` — `PROPFIND` Depth:0 with HEAD fallback for non-WebDAV servers
+- `mkdir()` / `makedirs()` — WebDAV `MKCOL`
+- `rm()` / `rmdir()` — HTTP `DELETE`
+- `mv()` — WebDAV `MOVE`
+- `open()` — delegated to fsspec's `HTTPFileSystem` (GET/PUT unchanged)
+- `chmod()` — no-op (HTTP has no permission model)
+
+Tests for `WebDAVFileSystem` live in `tests/test_webdav.py` and use an in-process
+mock WebDAV server (no external network needed).
 
 ### EOS HTTPS endpoint (eospublic.cern.ch:8444)
 

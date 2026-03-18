@@ -79,11 +79,9 @@ def url_to_fs(url, storage_options=None):
     scheme = parsed.scheme.lower()
 
     if scheme in ("http", "https"):
-        opts = {k: v for k, v in storage_options.items() if k != "ssl_verify"}
-        if not storage_options.get("ssl_verify", True):
-            opts["get_client"] = _no_verify_get_client
-        fs = fsspec.filesystem("http", **opts)
-        return fs, url
+        from gfal_cli.webdav import WebDAVFileSystem
+
+        return WebDAVFileSystem(storage_options), url
 
     if scheme in ("root", "xroot"):
         _fix_xrootd_plugin_path()
