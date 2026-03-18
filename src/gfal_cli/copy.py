@@ -339,10 +339,12 @@ class CommandCopy(base.CommandBase):
             # ------------------------------------------------------------------
             # Progress display for TPC
             #
-            # Explicit TPC (--tpc / --tpc-only): start immediately.
-            # Auto-TPC: lazy — only start on the first perf-marker so that a
-            # fast failure before any data moves falls back silently to streaming
-            # without confusing "[FAILED]" output.
+            # Always lazy: progress only starts when the first WLCG perf-marker
+            # is received.  This means a TPC attempt that fails before any bytes
+            # move (wrong protocol pair, 405, auth error) produces no output —
+            # streaming then takes over and shows its own clean progress line.
+            # For XRootD TPC (no perf-markers) we start progress explicitly
+            # just before the blocking CopyProcess.run() call.
             # ------------------------------------------------------------------
             show_progress = sys.stdout.isatty() and not self.params.verbose
             tpc_start = time.monotonic()
@@ -379,9 +381,6 @@ class CommandCopy(base.CommandBase):
                         elapsed=time.monotonic() - tpc_start,
                     )
 
-            if explicit_tpc:
-                _start_tpc_progress()
-
             try:
                 from gfal_cli import (
                     tpc as _tpc,  # lazy: tpc.py may not be installed  # noqa: PLC0415
@@ -396,6 +395,7 @@ class CommandCopy(base.CommandBase):
                     verbose=bool(self.params.verbose),
                     scitag=getattr(self.params, "scitag", None),
                     progress_callback=_tpc_progress,
+                    start_callback=_start_tpc_progress,
                 )
                 _stop_tpc_progress(True)
                 return  # TPC succeeded — nothing more to do

@@ -42,6 +42,7 @@ def do_tpc(
     verbose=False,
     scitag=None,
     progress_callback=None,
+    start_callback=None,
 ):
     """Perform a third-party copy between two remote URLs.
 
@@ -51,7 +52,11 @@ def do_tpc(
         Optional callable ``(bytes_transferred: int) -> None`` that is called
         each time a WLCG performance marker is received during HTTP TPC.
         Values are cumulative (total bytes transferred so far, not a delta).
-        Not called for XRootD TPC.
+        Not called for XRootD TPC (use *start_callback* for that).
+    start_callback:
+        Optional callable ``() -> None`` invoked just before the blocking
+        XRootD CopyProcess starts.  Allows the caller to show a progress
+        indicator even though XRootD TPC provides no byte-level markers.
 
     Returns ``True`` on success.
 
@@ -69,7 +74,13 @@ def do_tpc(
 
     # XRootD <-> XRootD: use native CopyProcess
     if src_scheme in ("root", "xroot") and dst_scheme in ("root", "xroot"):
-        return _xrootd_tpc(src_url, dst_url, timeout=timeout, verbose=verbose)
+        return _xrootd_tpc(
+            src_url,
+            dst_url,
+            timeout=timeout,
+            verbose=verbose,
+            start_callback=start_callback,
+        )
 
     # HTTP(S) <-> HTTP(S): use WebDAV COPY
     if src_scheme in ("http", "https") and dst_scheme in ("http", "https"):
@@ -221,7 +232,7 @@ def _http_tpc(
 # ---------------------------------------------------------------------------
 
 
-def _xrootd_tpc(src_url, dst_url, *, timeout, verbose):
+def _xrootd_tpc(src_url, dst_url, *, timeout, verbose, start_callback=None):
     """XRootD native third-party copy via pyxrootd CopyProcess."""
     try:
         from XRootD import client as xrd_client  # noqa: PLC0415
@@ -233,6 +244,11 @@ def _xrootd_tpc(src_url, dst_url, *, timeout, verbose):
 
     if verbose:
         sys.stderr.write(f"[TPC xrootd] {src_url} -> {dst_url}\n")
+
+    # XRootD CopyProcess.run() is blocking with no byte-level callbacks, so
+    # start the progress display now (before the call) if the caller provided one.
+    if start_callback is not None:
+        start_callback()
 
     process = xrd_client.CopyProcess()
 
