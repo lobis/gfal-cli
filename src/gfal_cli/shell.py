@@ -12,6 +12,7 @@ from gfal_cli import (
     copy,  # noqa: F401  – registers CommandCopy subclass
     ls,  # noqa: F401  – registers CommandLs subclass
     rm,  # noqa: F401  – registers CommandRm subclass
+    tape,  # noqa: F401  – registers CommandTape subclass (bringonline/archivepoll/evict/token)
 )
 
 

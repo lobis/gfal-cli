@@ -148,6 +148,41 @@ class CommandBase:
             default=True,
             help="skip SSL certificate verification (insecure; for self-signed certs)",
         )
+        # Flags accepted for backwards compatibility with gfal2-util but not used
+        # in this fsspec-based implementation.
+        self.parser.add_argument(
+            "-D",
+            "--definition",
+            type=str,
+            action="append",
+            default=None,
+            metavar="DEFINITION",
+            dest="definition",
+            help="override a gfal2 parameter (accepted for compatibility; ignored)",
+        )
+        self.parser.add_argument(
+            "-C",
+            "--client-info",
+            type=str,
+            default=None,
+            metavar="CLIENT_INFO",
+            dest="client_info",
+            help="provide custom client-side information (accepted for compatibility; ignored)",
+        )
+        self.parser.add_argument(
+            "-4",
+            action="store_true",
+            default=False,
+            dest="ipv4_only",
+            help="force IPv4 addresses only (GridFTP only; accepted for compatibility; ignored)",
+        )
+        self.parser.add_argument(
+            "-6",
+            action="store_true",
+            default=False,
+            dest="ipv6_only",
+            help="force IPv6 addresses only (GridFTP only; accepted for compatibility; ignored)",
+        )
 
         for args, kwargs in getattr(func, "arguments", []):
             self.parser.add_argument(*args, **kwargs)

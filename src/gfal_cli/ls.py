@@ -151,6 +151,15 @@ class CommandLs(base.CommandBase):
         help="reverse sort order",
     )
     @base.arg(
+        "--xattr",
+        type=str,
+        action="append",
+        default=None,
+        metavar="ATTR",
+        help="query this extended attribute and display it in long output "
+        "(can be specified multiple times; only shown with -l)",
+    )
+    @base.arg(
         "--sort",
         dest="sort",
         type=str,

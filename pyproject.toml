@@ -30,6 +30,10 @@ gfal-rename = "gfal_cli.shell:main"
 gfal-chmod = "gfal_cli.shell:main"
 gfal-sum = "gfal_cli.shell:main"
 gfal-xattr = "gfal_cli.shell:main"
+gfal-bringonline = "gfal_cli.shell:main"
+gfal-archivepoll = "gfal_cli.shell:main"
+gfal-evict = "gfal_cli.shell:main"
+gfal-token = "gfal_cli.shell:main"
 
 [project.optional-dependencies]
 dev = [

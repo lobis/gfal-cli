@@ -145,13 +145,52 @@ When a `str` is required (e.g. for `os.environ`, `ctypes.CDLL`, or third-party A
 
 **Fallback logic**: `NotImplementedError` from `do_tpc` is caught in `_do_copy`; unless `--tpc-only` was set the copy continues with client-side streaming. Any other exception propagates as a real error.
 
-## Intentionally omitted
+## SSH / remote command policy
 
-- Tape commands: `gfal-bringonline`, `gfal-archivepoll`, `gfal-evict`
-- `gfal-token`
-- Legacy LFC commands (`gfal-legacy-*`)
-- gfal2-specific flags: `-D`/`--definition`, `-C`/`--client-info`, `-4`/`-6`
-- GridFTP-specific copy options: `--nbstreams`, `--tcp-buffersize`, `--spacetoken`, `--copy-mode`, etc.
+The reference system for gfal2-util CLI compatibility is `lxplus.cern.ch`.
+
+**Always prompt the user before running any SSH command** (even read-only ones). The
+canonical help output for every command has already been captured in
+[`docs/gfal2-util-help-reference.md`](docs/gfal2-util-help-reference.md) —
+**consult that file first** before connecting live.
+
+When a live connection is genuinely needed (e.g. to observe actual output format,
+not just flags), only run commands that:
+- Are completely read-only (e.g. `--help`, `gfal-stat` on a public file, `gfal-ls` on a public path).
+- Cannot leave any persistent side-effects (no writes, no staging requests, no token requests).
+
+Use:
+```bash
+ssh lxplus.cern.ch '<command>'
+```
+
+Never run `gfal-bringonline`, `gfal-archivepoll`, `gfal-evict`, `gfal-token`,
+`gfal-cp`, `gfal-rm`, `gfal-mkdir`, `gfal-chmod`, `gfal-save`, `gfal-rename`
+without explicit user confirmation, even with `--dry-run`.
+
+## Intentionally omitted / stubbed
+
+The following are not functionally implemented (require native gfal2 C library or
+are protocol-specific), but their **CLI interface is fully preserved** for backwards
+compatibility.  Each stub prints a clear "not supported" message and exits 1.
+
+| Command / flag | Reason | Status |
+|----------------|--------|--------|
+| `gfal-bringonline` | Requires gfal2 tape/SRM support | CLI stub in `tape.py` |
+| `gfal-archivepoll` | Requires gfal2 tape/SRM support | CLI stub in `tape.py` |
+| `gfal-evict` | Requires gfal2 tape/SRM support | CLI stub in `tape.py` |
+| `gfal-token` | Requires gfal2 macaroon/token support | CLI stub in `tape.py` |
+| `gfal-legacy-*` | Legacy LFC commands; no active users | Not implemented |
+| `-D`/`--definition` | gfal2 parameter override; no gfal2 | Accepted, ignored (common args) |
+| `-C`/`--client-info` | gfal2 client metadata; no gfal2 | Accepted, ignored (common args) |
+| `-4`/`-6` | IPv4/IPv6 preference (GridFTP only) | Accepted, ignored (common args) |
+| `-n`/`--nbstreams` | Parallel streams (GridFTP only) | Accepted, warned+ignored (`copy.py`) |
+| `--tcp-buffersize` | TCP buffer tuning (GridFTP only) | Accepted, warned+ignored (`copy.py`) |
+| `-s`/`--src-spacetoken` | SRM space tokens | Accepted, warned+ignored (`copy.py`) |
+| `-S`/`--dst-spacetoken` | SRM space tokens | Accepted, warned+ignored (`copy.py`) |
+| `--evict` (copy flag) | Post-transfer source eviction | Accepted, no-op (`copy.py`) |
+| `--no-delegation` | Disable proxy delegation (TPC) | Accepted, no-op (`copy.py`) |
+| `--disable-cleanup` | Keep partial dst on failure | Accepted, no-op (`copy.py`) |
 
 ## Testing
 

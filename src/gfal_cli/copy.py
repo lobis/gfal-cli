@@ -60,9 +60,11 @@ class CommandCopy(base.CommandBase):
         help="stop immediately on first error",
     )
     @base.arg(
+        "-T",
         "--transfer-timeout",
         type=int,
         default=0,
+        metavar="TRANSFER_TIMEOUT",
         help="per-file transfer timeout in seconds (0 = no per-file timeout)",
     )
     @base.arg(
@@ -85,12 +87,76 @@ class CommandCopy(base.CommandBase):
         "push = src pushes to dst",
     )
     @base.arg(
+        "--copy-mode",
+        type=str,
+        choices=["pull", "push", "streamed"],
+        default=None,
+        help="copy mode (gfal2-util compatible): pull/push = TPC with that direction; "
+        "streamed = force client-side streaming. Overrides --tpc/--tpc-only/--tpc-mode "
+        "when specified.",
+    )
+    @base.arg(
+        "--just-copy",
+        action="store_true",
+        help="skip all preparation steps (checksum verification, overwrite checks, "
+        "parent directory creation) and just perform the raw copy",
+    )
+    @base.arg(
+        "--disable-cleanup",
+        action="store_true",
+        help="disable removal of partially-written destination files on transfer failure",
+    )
+    @base.arg(
+        "--no-delegation",
+        action="store_true",
+        help="disable proxy delegation for TPC transfers",
+    )
+    @base.arg(
+        "--evict",
+        action="store_true",
+        help="evict the source file from its disk buffer after a successful transfer "
+        "(requires gfal2; accepted for compatibility, currently a no-op)",
+    )
+    @base.arg(
         "--scitag",
         type=int,
         default=None,
         metavar="N",
         help="SciTag flow identifier [65-65535] forwarded as HTTP header "
         "(HTTP TPC only; for WLCG network monitoring)",
+    )
+    @base.arg(
+        "-n",
+        "--nbstreams",
+        type=int,
+        default=None,
+        metavar="NBSTREAMS",
+        help="maximum number of parallel streams (GridFTP only; accepted for compatibility; ignored)",
+    )
+    @base.arg(
+        "--tcp-buffersize",
+        type=int,
+        default=None,
+        metavar="BYTES",
+        help="TCP buffer size in bytes (GridFTP only; accepted for compatibility; ignored)",
+    )
+    @base.arg(
+        "-s",
+        "--src-spacetoken",
+        type=str,
+        default=None,
+        metavar="TOKEN",
+        dest="src_spacetoken",
+        help="source space token (SRM/GridFTP only; accepted for compatibility; ignored)",
+    )
+    @base.arg(
+        "-S",
+        "--dst-spacetoken",
+        type=str,
+        default=None,
+        metavar="TOKEN",
+        dest="dst_spacetoken",
+        help="destination space token (SRM/GridFTP only; accepted for compatibility; ignored)",
     )
     @base.arg("src", type=base.surl, nargs="?", help="source URI")
     @base.arg(
@@ -105,6 +171,29 @@ class CommandCopy(base.CommandBase):
         if self.params.from_file and self.params.src:
             sys.stderr.write("Cannot combine --from-file with a positional source\n")
             return 1
+
+        # --copy-mode overrides --tpc/--tpc-only/--tpc-mode for backwards compatibility
+        if self.params.copy_mode is not None:
+            if self.params.copy_mode == "streamed":
+                self.params.tpc = False
+                self.params.tpc_only = False
+            else:
+                self.params.tpc = True
+                self.params.tpc_mode = self.params.copy_mode  # "pull" or "push"
+
+        # Warn about accepted-but-ignored GridFTP/SRM flags
+        _ignored = {
+            "--nbstreams": self.params.nbstreams,
+            "--tcp-buffersize": self.params.tcp_buffersize,
+            "--src-spacetoken": self.params.src_spacetoken,
+            "--dst-spacetoken": self.params.dst_spacetoken,
+        }
+        for flag, val in _ignored.items():
+            if val is not None:
+                sys.stderr.write(
+                    f"{self.progr}: warning: {flag} is not supported in this "
+                    "implementation and will be ignored\n"
+                )
 
         opts = fs.build_storage_options(self.params)
 
@@ -172,11 +261,14 @@ class CommandCopy(base.CommandBase):
         except (FileNotFoundError, Exception):
             pass
 
-        if dst_exists and not dst_isdir and not self.params.force:
-            raise FileExistsError(f"Destination '{dst_url}' exists and --force not set")
+        if not self.params.just_copy:
+            if dst_exists and not dst_isdir and not self.params.force:
+                raise FileExistsError(
+                    f"Destination '{dst_url}' exists and --force not set"
+                )
 
-        if dst_exists and not dst_isdir and src_isdir:
-            raise IsADirectoryError("Cannot copy a directory over a file")
+            if dst_exists and not dst_isdir and src_isdir:
+                raise IsADirectoryError("Cannot copy a directory over a file")
 
         if src_isdir:
             if not self.params.recursive:
@@ -315,9 +407,13 @@ class CommandCopy(base.CommandBase):
                 with contextlib.suppress(Exception):
                     dst_fs.mkdir(parent, create_parents=True)
 
-        # Compute source checksum before transfer if requested
+        # Compute source checksum before transfer if requested (skipped with --just-copy)
         src_checksum = None
-        if self.params.checksum and self.params.checksum_mode in ("source", "both"):
+        if (
+            self.params.checksum
+            and not self.params.just_copy
+            and self.params.checksum_mode in ("source", "both")
+        ):
             alg, expected = _parse_checksum_arg(self.params.checksum)
             src_checksum = _checksum_fs(src_fs, src_path, alg)
             if expected and src_checksum != expected.lower():
@@ -339,7 +435,11 @@ class CommandCopy(base.CommandBase):
         dst_checksum_hasher = None
 
         alg_for_dst = None
-        if self.params.checksum and self.params.checksum_mode in ("target", "both"):
+        if (
+            self.params.checksum
+            and not self.params.just_copy
+            and self.params.checksum_mode in ("target", "both")
+        ):
             alg_for_dst, _ = _parse_checksum_arg(self.params.checksum)
             dst_checksum_hasher = _make_hasher(alg_for_dst)
 

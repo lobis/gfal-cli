@@ -77,6 +77,12 @@ class GfalCommands(base.CommandBase):
     # cat  (remote file → stdout)
     # ------------------------------------------------------------------
 
+    @base.arg(
+        "-b",
+        "--bytes",
+        action="store_true",
+        help="handle file contents as raw bytes (no-op in Python 3; always binary)",
+    )
     @base.arg("file", nargs="+", type=base.surl, help="URI(s) to display")
     def execute_cat(self):
         """Print file contents to stdout."""

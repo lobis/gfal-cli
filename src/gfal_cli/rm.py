@@ -38,6 +38,11 @@ class CommandRm(base.CommandBase):
         default=None,
         help="read URIs from a file, one per line",
     )
+    @base.arg(
+        "--bulk",
+        action="store_true",
+        help="use bulk deletion (accepted for compatibility; currently performs sequential deletion)",
+    )
     @base.arg("file", nargs="*", type=base.surl, help="URI(s) to delete")
     def execute_rm(self):
         """Remove files or directories."""
