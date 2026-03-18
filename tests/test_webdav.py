@@ -682,3 +682,122 @@ class TestWebDAVPropfindExtra:
         names = [e["name"].rstrip("/").rsplit("/", 1)[-1] for e in entries]
         assert "child" in names
         assert "grandchild.txt" not in names
+
+
+# ---------------------------------------------------------------------------
+# Bearer token in _make_session
+# ---------------------------------------------------------------------------
+
+
+class TestMakeSessionBearerToken:
+    def test_bearer_token_added_to_headers(self):
+        from gfal_cli.webdav import _make_session
+
+        session = _make_session({"bearer_token": "my-macaroon"})
+        assert session.headers.get("Authorization") == "Bearer my-macaroon"
+
+    def test_no_bearer_token_no_auth_header(self):
+        from gfal_cli.webdav import _make_session
+
+        session = _make_session({})
+        assert "Authorization" not in session.headers
+
+
+# ---------------------------------------------------------------------------
+# HTTP directory detection (text/html mimetype heuristic)
+# ---------------------------------------------------------------------------
+
+
+class TestHttpDirectoryDetection:
+    def test_info_trailing_slash_returns_directory(self, dav_server):
+        """info() on a path ending with '/' should return type='directory'."""
+        from unittest.mock import patch
+
+        fs = WebDAVFileSystem()
+
+        # Simulate a non-WebDAV server: PROPFIND raises NotImplementedError,
+        # HEAD returns text/html (directory index).
+        mock_head_info = {
+            "name": dav_server + "/dir/",
+            "size": 0,
+            "type": "file",
+            "mimetype": "text/html; charset=utf-8",
+        }
+        with (
+            patch.object(fs, "_propfind", side_effect=NotImplementedError("405")),
+            patch.object(fs._http_fs, "info", return_value=mock_head_info),
+        ):
+            info = fs.info(dav_server + "/dir/")
+        assert info["type"] == "directory"
+
+    def test_info_text_html_mimetype_returns_directory(self, dav_server):
+        """info() with text/html mimetype from HEAD sets type='directory'."""
+        from unittest.mock import patch
+
+        fs = WebDAVFileSystem()
+        mock_head_info = {
+            "name": dav_server + "/index",
+            "size": 1024,
+            "type": "file",
+            "mimetype": "text/html",
+        }
+        with (
+            patch.object(fs, "_propfind", side_effect=NotImplementedError("405")),
+            patch.object(fs._http_fs, "info", return_value=mock_head_info),
+        ):
+            info = fs.info(dav_server + "/index")
+        assert info["type"] == "directory"
+
+    def test_info_plain_file_stays_file(self, dav_server):
+        """info() with application/octet-stream keeps type='file'."""
+        from unittest.mock import patch
+
+        fs = WebDAVFileSystem()
+        mock_head_info = {
+            "name": dav_server + "/data.bin",
+            "size": 512,
+            "type": "file",
+            "mimetype": "application/octet-stream",
+        }
+        with (
+            patch.object(fs, "_propfind", side_effect=NotImplementedError("405")),
+            patch.object(fs._http_fs, "info", return_value=mock_head_info),
+        ):
+            info = fs.info(dav_server + "/data.bin")
+        assert info["type"] == "file"
+
+
+# ---------------------------------------------------------------------------
+# ls() fallback for non-WebDAV servers (405 on PROPFIND)
+# ---------------------------------------------------------------------------
+
+
+class TestLsNonWebDAVFallback:
+    def test_ls_falls_back_to_info_on_405(self, dav_server):
+        """ls() on a 405-responding server returns single-entry list from info()."""
+        from unittest.mock import patch
+
+        with _vfs_lock:
+            _vfs.add("/fallback_file.txt")
+        fs = WebDAVFileSystem()
+
+        # Make PROPFIND fail with 405 but info() succeed via HEAD
+        with patch.object(fs, "_propfind", side_effect=NotImplementedError("405")):
+            entries = fs.ls(dav_server + "/fallback_file.txt", detail=True)
+
+        assert len(entries) == 1
+        assert "fallback_file" in entries[0]["name"]
+
+    def test_ls_fallback_names_only(self, dav_server):
+        """ls() with detail=False still works on non-WebDAV fallback."""
+        from unittest.mock import patch
+
+        with _vfs_lock:
+            _vfs.add("/fallback2.txt")
+        fs = WebDAVFileSystem()
+
+        with patch.object(fs, "_propfind", side_effect=NotImplementedError("405")):
+            names = fs.ls(dav_server + "/fallback2.txt", detail=False)
+
+        assert len(names) == 1
+        assert isinstance(names[0], str)

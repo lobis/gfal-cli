@@ -25,6 +25,7 @@ XRootD
 
 import contextlib
 import sys
+from pathlib import Path
 from urllib.parse import urlparse
 
 # ---------------------------------------------------------------------------
@@ -119,6 +120,9 @@ def _build_session(opts):
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         session.verify = False
+    bearer_token = opts.get("bearer_token")
+    if bearer_token:
+        session.headers.update({"Authorization": f"Bearer {bearer_token}"})
     return session
 
 
@@ -200,6 +204,13 @@ def _http_tpc(
     }
     if scitag is not None:
         headers["SciTag"] = str(scitag)
+
+    # WLCG HTTP-TPC spec: include proxy certificate as Credential header so
+    # the receiving server can authenticate to the source on the client's behalf.
+    client_cert = opts.get("client_cert")
+    if client_cert:
+        with contextlib.suppress(OSError):
+            headers["Credential"] = Path(client_cert).read_text()
 
     if mode == "push":
         # Source server pushes to destination

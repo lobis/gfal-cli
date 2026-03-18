@@ -47,6 +47,9 @@ def _make_session(storage_options):
 
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         session.verify = False
+    bearer_token = storage_options.get("bearer_token")
+    if bearer_token:
+        session.headers.update({"Authorization": f"Bearer {bearer_token}"})
     return session
 
 
@@ -275,13 +278,26 @@ class WebDAVFileSystem:
         except Exception:
             pass  # Other PROPFIND failures (non-WebDAV server); fall through to HEAD
         # Fall back to fsspec's HTTP HEAD request (works for any plain-HTTP file)
-        return self._http_fs.info(path)
+        result = dict(self._http_fs.info(path))
+        # Heuristic: plain HTTP servers can't tell us a resource is a directory,
+        # but we can infer it from the URL (trailing slash) or Content-Type.
+        mimetype = str(result.get("mimetype") or "")
+        if path.endswith("/") or "text/html" in mimetype:
+            result["type"] = "directory"
+            result.setdefault("mode", stat_module.S_IFDIR | 0o755)
+        return result
 
     def ls(self, path: str, detail: bool = True):
         """List directory contents via PROPFIND Depth:1."""
         # Use a trailing slash so the server knows we mean the collection
         url = path.rstrip("/") + "/"
-        entries = self._propfind(url, depth=1)
+        try:
+            entries = self._propfind(url, depth=1)
+        except NotImplementedError:
+            # Non-WebDAV server: fall back to returning the single resource
+            # info so that ``gfal-ls <file-url>`` still works on plain HTTP.
+            info = self.info(path)
+            return [info] if detail else [info["name"]]
 
         # Separate the self-entry (the collection itself) from its children
         path_norm = path.rstrip("/")

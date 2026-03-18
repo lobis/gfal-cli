@@ -686,3 +686,107 @@ class TestParseTpcBodyExtra:
         cb = MagicMock()
         tpc_mod._parse_tpc_body(resp, progress_callback=cb)
         cb.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Credential delegation header
+# ---------------------------------------------------------------------------
+
+
+class TestCredentialDelegation:
+    def _make_session_mock(self, status_code=201):
+        resp = MagicMock()
+        resp.status_code = status_code
+        resp.iter_lines.return_value = iter([])
+        session = MagicMock()
+        session.request.return_value = resp
+        return session
+
+    def test_credential_header_set_when_cert_present(self, tmp_path):
+        """Credential header is set when client_cert is in opts (WLCG TPC spec)."""
+        proxy = tmp_path / "proxy.pem"
+        proxy.write_text(
+            "-----BEGIN CERTIFICATE-----\nFAKEPEM\n-----END CERTIFICATE-----\n"
+        )
+        opts = {"client_cert": str(proxy)}
+
+        session = self._make_session_mock()
+        with patch.object(tpc_mod, "_build_session", return_value=session):
+            tpc_mod._http_tpc(
+                "https://src.example.com/file",
+                "https://dst.example.com/file",
+                opts,
+                mode="pull",
+                timeout=None,
+                verbose=False,
+                scitag=None,
+            )
+        _, kwargs = session.request.call_args
+        assert "Credential" in kwargs["headers"]
+        assert "FAKEPEM" in kwargs["headers"]["Credential"]
+
+    def test_no_credential_header_when_no_cert(self):
+        """No Credential header is sent when client_cert is absent."""
+        session = self._make_session_mock()
+        with patch.object(tpc_mod, "_build_session", return_value=session):
+            tpc_mod._http_tpc(
+                "https://src.example.com/file",
+                "https://dst.example.com/file",
+                {},
+                mode="pull",
+                timeout=None,
+                verbose=False,
+                scitag=None,
+            )
+        _, kwargs = session.request.call_args
+        assert "Credential" not in kwargs["headers"]
+
+    def test_credential_header_set_in_push_mode(self, tmp_path):
+        """Credential header is also set for push-mode TPC."""
+        proxy = tmp_path / "proxy.pem"
+        proxy.write_text("PUSHCERT")
+        opts = {"client_cert": str(proxy)}
+
+        session = self._make_session_mock()
+        with patch.object(tpc_mod, "_build_session", return_value=session):
+            tpc_mod._http_tpc(
+                "https://src.example.com/file",
+                "https://dst.example.com/file",
+                opts,
+                mode="push",
+                timeout=None,
+                verbose=False,
+                scitag=None,
+            )
+        _, kwargs = session.request.call_args
+        assert "Credential" in kwargs["headers"]
+
+
+# ---------------------------------------------------------------------------
+# Bearer token in _build_session
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSessionBearerToken:
+    def test_bearer_token_sets_authorization_header(self):
+        opts = {"bearer_token": "mytoken123"}
+        session = tpc_mod._build_session(opts)
+        assert session.headers.get("Authorization") == "Bearer mytoken123"
+
+    def test_no_bearer_token_no_authorization_header(self):
+        session = tpc_mod._build_session({})
+        assert "Authorization" not in session.headers
+
+    def test_bearer_token_and_cert_coexist(self, tmp_path):
+        cert = tmp_path / "cert.pem"
+        cert.write_text("cert")
+        key = tmp_path / "key.pem"
+        key.write_text("key")
+        opts = {
+            "client_cert": str(cert),
+            "client_key": str(key),
+            "bearer_token": "scitoken-abc",
+        }
+        session = tpc_mod._build_session(opts)
+        assert session.cert == (str(cert), str(key))
+        assert session.headers.get("Authorization") == "Bearer scitoken-abc"

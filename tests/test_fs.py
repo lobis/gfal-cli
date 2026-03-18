@@ -384,3 +384,74 @@ class TestBuildStorageOptions:
         params = SimpleNamespace(cert=None, key=None, ssl_verify=True)
         opts = build_storage_options(params)
         assert opts == {}
+
+
+# ---------------------------------------------------------------------------
+# Bearer token support in build_storage_options
+# ---------------------------------------------------------------------------
+
+
+class TestBuildStorageOptionsBearerToken:
+    def test_bearer_token_env_var(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from gfal_cli.fs import build_storage_options
+
+        monkeypatch.setenv("BEARER_TOKEN", "token-from-env")
+        monkeypatch.delenv("BEARER_TOKEN_FILE", raising=False)
+
+        params = SimpleNamespace(cert=None, key=None, ssl_verify=True)
+        opts = build_storage_options(params)
+        assert opts.get("bearer_token") == "token-from-env"
+
+    def test_bearer_token_file_env_var(self, monkeypatch, tmp_path):
+        from types import SimpleNamespace
+
+        from gfal_cli.fs import build_storage_options
+
+        token_file = tmp_path / "token"
+        token_file.write_text("file-token\n")
+        monkeypatch.delenv("BEARER_TOKEN", raising=False)
+        monkeypatch.setenv("BEARER_TOKEN_FILE", str(token_file))
+
+        params = SimpleNamespace(cert=None, key=None, ssl_verify=True)
+        opts = build_storage_options(params)
+        assert opts.get("bearer_token") == "file-token"
+
+    def test_bearer_token_env_takes_priority_over_file(self, monkeypatch, tmp_path):
+        from types import SimpleNamespace
+
+        from gfal_cli.fs import build_storage_options
+
+        token_file = tmp_path / "token"
+        token_file.write_text("file-token\n")
+        monkeypatch.setenv("BEARER_TOKEN", "env-token")
+        monkeypatch.setenv("BEARER_TOKEN_FILE", str(token_file))
+
+        params = SimpleNamespace(cert=None, key=None, ssl_verify=True)
+        opts = build_storage_options(params)
+        assert opts.get("bearer_token") == "env-token"
+
+    def test_no_bearer_token_env_no_key(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from gfal_cli.fs import build_storage_options
+
+        monkeypatch.delenv("BEARER_TOKEN", raising=False)
+        monkeypatch.delenv("BEARER_TOKEN_FILE", raising=False)
+
+        params = SimpleNamespace(cert=None, key=None, ssl_verify=True)
+        opts = build_storage_options(params)
+        assert "bearer_token" not in opts
+
+    def test_bearer_token_file_missing_ignored(self, monkeypatch):
+        from types import SimpleNamespace
+
+        from gfal_cli.fs import build_storage_options
+
+        monkeypatch.delenv("BEARER_TOKEN", raising=False)
+        monkeypatch.setenv("BEARER_TOKEN_FILE", "/tmp/this_does_not_exist_bearer_token")
+
+        params = SimpleNamespace(cert=None, key=None, ssl_verify=True)
+        opts = build_storage_options(params)
+        assert "bearer_token" not in opts

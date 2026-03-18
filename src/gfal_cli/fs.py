@@ -1,8 +1,9 @@
 """
-fsspec integration layer: URL normalisation, filesystem acquisition,
+fsspec integration layer: URL normalization, filesystem acquisition,
 and a stat-like wrapper around fsspec info() dicts.
 """
 
+import contextlib
 import os
 import stat as stat_module
 import sys
@@ -138,6 +139,16 @@ def build_storage_options(params):
         opts["client_key"] = key or cert
     if not getattr(params, "ssl_verify", True):
         opts["ssl_verify"] = False
+    # Bearer token / macaroon: read from standard WLCG env vars.
+    # BEARER_TOKEN takes priority; fall back to BEARER_TOKEN_FILE.
+    token = os.environ.get("BEARER_TOKEN")
+    if not token:
+        token_file = os.environ.get("BEARER_TOKEN_FILE")
+        if token_file:
+            with contextlib.suppress(OSError):
+                token = Path(token_file).read_text().strip()
+    if token:
+        opts["bearer_token"] = token
     return opts
 
 
