@@ -228,23 +228,51 @@ class TestLsColor:
         assert rc == 0
         assert "\033[" not in out
 
-    def test_color_always(self, tmp_path):
+    def test_color_no_ls_colors_env(self, tmp_path):
+        """With empty LS_COLORS, --color=always should produce no escape codes
+        (no entry to apply, so names are returned undecorated)."""
         (tmp_path / "f.txt").write_text("x")
 
-        rc, out, err = run_gfal("ls", "--color=always", tmp_path.as_uri())
+        rc, out, err = run_gfal(
+            "ls", "--color=always", tmp_path.as_uri(), env={"LS_COLORS": ""}
+        )
 
         assert rc == 0
-        assert "\033[" in out
+        assert "\033[" not in out
 
-    def test_color_always_directory(self, tmp_path):
-        """Directories should be colored differently from files."""
+    def test_color_directory_vs_file(self, tmp_path):
+        """Directories and files should receive different ANSI codes."""
+        (tmp_path / "f.txt").write_text("x")
         sub = tmp_path / "mysubdir"
         sub.mkdir()
 
-        rc, out, err = run_gfal("ls", "--color=always", tmp_path.as_uri())
+        ls_colors = "di=01;34:fi=0:rs=0"
+        rc, out, err = run_gfal(
+            "ls", "--color=always", tmp_path.as_uri(), env={"LS_COLORS": ls_colors}
+        )
 
         assert rc == 0
-        assert "\033[" in out
+        # Directory should have the "di" code (01;34)
+        assert "\033[01;34m" in out
+        # File should have the "fi" code (0) or no code — just ensure dir is different
+        lines = out.strip().splitlines()
+        dir_line = next(ln for ln in lines if "mysubdir" in ln)
+        file_line = next(ln for ln in lines if "f.txt" in ln)
+        assert dir_line != file_line
+
+    def test_color_extension(self, tmp_path):
+        """Extension-based colors (*.txt=xx) should be applied to matching files."""
+        (tmp_path / "doc.txt").write_text("x")
+        (tmp_path / "script.py").write_text("x")
+
+        ls_colors = "*.txt=01;32:*.py=01;33"
+        rc, out, err = run_gfal(
+            "ls", "--color=always", tmp_path.as_uri(), env={"LS_COLORS": ls_colors}
+        )
+
+        assert rc == 0
+        assert "\033[01;32m" in out  # green for .txt
+        assert "\033[01;33m" in out  # yellow for .py
 
 
 # ---------------------------------------------------------------------------

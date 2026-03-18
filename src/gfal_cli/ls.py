@@ -336,7 +336,7 @@ class CommandLs(base.CommandBase):
                 f"{xattr_suffix}\t\n"
             )
         else:
-            sys.stdout.write(f"{self._colorize(name, None)}\n")
+            sys.stdout.write(f"{self._colorize(name, st.st_mode)}\n")
 
     def _colorize(self, name, mode):
         apply = self.params.color == "always" or (
@@ -345,15 +345,25 @@ class CommandLs(base.CommandBase):
         if not apply:
             return name
 
-        color = "037"
+        color = None
         if mode is None:
-            color = _color_dict.get("no", color)
+            color = _color_dict.get("no")
         elif stat.S_ISDIR(mode):
-            color = _color_dict.get("di", color)
+            color = _color_dict.get("di")
         elif stat.S_ISLNK(mode):
-            color = _color_dict.get("ln", color)
+            color = _color_dict.get("ln")
         elif mode & (stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH):
-            color = _color_dict.get("ex", color)
+            color = _color_dict.get("ex")
+        else:
+            # Regular file: try extension-based color first, then "fi"
+            ext = Path(name).suffix  # e.g. ".txt"
+            if ext:
+                color = _color_dict.get(f"*{ext}")
+            if color is None:
+                color = _color_dict.get("fi")
+
+        if not color:
+            return name
         return f"\033[{color}m{name}\033[0m"
 
 
