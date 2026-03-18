@@ -860,3 +860,116 @@ class TestCopyCleanupOnFailure:
     def test_disable_cleanup_flag_in_help(self):
         rc, out, err = run_gfal("cp", "--help")
         assert "disable-cleanup" in out + err
+
+
+# ---------------------------------------------------------------------------
+# Output format
+# ---------------------------------------------------------------------------
+
+
+class TestCopyOutputFormat:
+    """gfal-cp writes 'Copying N bytes  src  =>  dst' to stdout in non-TTY mode."""
+
+    def test_non_tty_prints_copying_line(self, tmp_path):
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"hello")
+
+        rc, out, err = run_gfal("cp", src.as_uri(), dst.as_uri())
+
+        assert rc == 0
+        assert "Copying" in out
+        assert "5" in out  # file size
+
+    def test_output_contains_src_url(self, tmp_path):
+        src = tmp_path / "mysource.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"data")
+
+        rc, out, err = run_gfal("cp", src.as_uri(), dst.as_uri())
+
+        assert rc == 0
+        assert src.as_uri() in out
+
+    def test_output_contains_dst_url(self, tmp_path):
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "target.txt"
+        src.write_bytes(b"data")
+
+        rc, out, err = run_gfal("cp", src.as_uri(), dst.as_uri())
+
+        assert rc == 0
+        assert dst.as_uri() in out
+
+    def test_failed_copy_no_copying_line(self, tmp_path):
+        """A failed copy (missing source) should not print Copying."""
+        src = tmp_path / "no_such.txt"
+        dst = tmp_path / "dst.txt"
+
+        rc, out, err = run_gfal("cp", src.as_uri(), dst.as_uri())
+
+        assert rc != 0
+        # No successful copy, so no "Copying" line
+        assert "Copying" not in out
+
+    def test_chain_copy_one_line_per_pair(self, tmp_path):
+        """Chain copy src->dst1->dst2 should print two Copying lines."""
+        src = tmp_path / "src.txt"
+        dst1 = tmp_path / "dst1.txt"
+        dst2 = tmp_path / "dst2.txt"
+        src.write_bytes(b"data")
+
+        rc, out, err = run_gfal("cp", src.as_uri(), dst1.as_uri(), dst2.as_uri())
+
+        assert rc == 0
+        assert out.count("Copying") == 2
+
+
+# ---------------------------------------------------------------------------
+# --no-verify flag
+# ---------------------------------------------------------------------------
+
+
+class TestCopyNoVerifyFlag:
+    def test_no_verify_accepted(self, tmp_path):
+        """--no-verify is accepted and the copy still works for local files."""
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"data")
+
+        rc, out, err = run_gfal("cp", "--no-verify", src.as_uri(), dst.as_uri())
+
+        assert rc == 0
+        assert dst.read_bytes() == b"data"
+
+    def test_no_verify_in_help(self):
+        rc, out, err = run_gfal("cp", "--help")
+        assert rc == 0
+        assert "no-verify" in out + err
+
+
+# ---------------------------------------------------------------------------
+# Verbose flag
+# ---------------------------------------------------------------------------
+
+
+class TestCopyVerbose:
+    def test_verbose_does_not_break_copy(self, tmp_path):
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"hello")
+
+        rc, out, err = run_gfal("cp", "-v", src.as_uri(), dst.as_uri())
+
+        assert rc == 0
+        assert dst.read_bytes() == b"hello"
+
+    def test_double_verbose_does_not_break_copy(self, tmp_path):
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"hello")
+
+        rc, out, err = run_gfal("cp", "-vv", src.as_uri(), dst.as_uri())
+
+        assert rc == 0
+        assert dst.read_bytes() == b"hello"

@@ -278,3 +278,70 @@ class TestSumCrc32c:
         assert len(parts) == 2
         # Checksum should be 8 hex chars
         assert len(parts[1]) == 8
+
+
+# ---------------------------------------------------------------------------
+# Multiple files
+# ---------------------------------------------------------------------------
+
+
+class TestSumMultipleFiles:
+    def test_two_files_separate_calls(self, tmp_path):
+        """gfal-sum takes one file per invocation; verify both produce correct output."""
+        f1 = tmp_path / "a.txt"
+        f2 = tmp_path / "b.txt"
+        f1.write_bytes(b"hello")
+        f2.write_bytes(b"world")
+
+        rc1, out1, _ = run_gfal("sum", f1.as_uri(), "MD5")
+        rc2, out2, _ = run_gfal("sum", f2.as_uri(), "MD5")
+
+        assert rc1 == 0
+        assert rc2 == 0
+        assert hashlib.md5(b"hello").hexdigest() in out1
+        assert hashlib.md5(b"world").hexdigest() in out2
+
+    def test_each_file_one_line(self, tmp_path):
+        """Each separate gfal-sum call produces exactly one output line."""
+        f1 = tmp_path / "a.txt"
+        f2 = tmp_path / "b.txt"
+        f1.write_bytes(b"x")
+        f2.write_bytes(b"y")
+
+        for f in (f1, f2):
+            rc, out, _ = run_gfal("sum", f.as_uri(), "ADLER32")
+            assert rc == 0
+            lines = [ln for ln in out.strip().splitlines() if ln.strip()]
+            assert len(lines) == 1
+
+    def test_missing_file_fails(self, tmp_path):
+        """A non-existent file produces a non-zero exit code."""
+        missing = tmp_path / "no_such.txt"
+
+        rc, out, err = run_gfal("sum", missing.as_uri(), "MD5")
+
+        assert rc != 0
+
+
+# ---------------------------------------------------------------------------
+# Missing algorithm argument
+# ---------------------------------------------------------------------------
+
+
+class TestSumMissingAlgorithmArg:
+    def test_no_algorithm_fails(self, tmp_path):
+        f = tmp_path / "f.txt"
+        f.write_bytes(b"data")
+
+        rc, out, err = run_gfal("sum", f.as_uri())
+
+        assert rc != 0
+
+    def test_error_goes_to_stderr(self, tmp_path):
+        f = tmp_path / "f.txt"
+        f.write_bytes(b"x")
+
+        rc, out, err = run_gfal("sum", f.as_uri(), "NOTREAL")
+
+        assert rc != 0
+        assert err.strip() != ""

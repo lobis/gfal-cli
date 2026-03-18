@@ -625,3 +625,60 @@ class TestWebDAVSslError:
             contextlib.suppress(Exception),
         ):
             fs.info(dav_server + "/fallback.txt")
+
+
+class TestWebDAVChmod:
+    def test_chmod_is_noop(self, dav_server):
+        """WebDAVFileSystem.chmod() is a documented no-op — must not raise."""
+        with _vfs_lock:
+            _vfs.add("/chmodfile.txt")
+        fs = WebDAVFileSystem()
+        # Should not raise
+        fs.chmod(dav_server + "/chmodfile.txt", 0o644)
+
+    def test_chmod_on_missing_path_noop(self, dav_server):
+        """chmod on a non-existent path is also a no-op (HTTP has no permission model)."""
+        fs = WebDAVFileSystem()
+        fs.chmod(dav_server + "/does_not_exist.txt", 0o755)
+
+
+class TestWebDAVOpenWrite:
+    def test_open_write_creates_entry(self, dav_server):
+        """open(url, 'wb') followed by write+close should PUT the file."""
+        fs = WebDAVFileSystem()
+        with fs.open(dav_server + "/written.txt", "wb") as f:
+            f.write(b"hello webdav")
+        with _vfs_lock:
+            assert "/written.txt" in _vfs
+
+    def test_open_read_returns_hello(self, dav_server):
+        """open(url, 'rb') should GET and return the mock content."""
+        with _vfs_lock:
+            _vfs.add("/readable.txt")
+        fs = WebDAVFileSystem()
+        with fs.open(dav_server + "/readable.txt", "rb") as f:
+            data = f.read()
+        assert data == b"hello"
+
+
+class TestWebDAVPropfindExtra:
+    def test_multiple_children(self, dav_server):
+        with _vfs_lock:
+            _vfs.add("/multi/")
+            for i in range(5):
+                _vfs.add(f"/multi/file{i}.txt")
+        fs = WebDAVFileSystem()
+        entries = fs.ls(dav_server + "/multi")
+        assert len(entries) == 5
+
+    def test_nested_dirs_not_shown_at_depth1(self, dav_server):
+        """Depth:1 PROPFIND should not return grandchildren."""
+        with _vfs_lock:
+            _vfs.add("/parent/")
+            _vfs.add("/parent/child/")
+            _vfs.add("/parent/child/grandchild.txt")
+        fs = WebDAVFileSystem()
+        entries = fs.ls(dav_server + "/parent")
+        names = [e["name"].rstrip("/").rsplit("/", 1)[-1] for e in entries]
+        assert "child" in names
+        assert "grandchild.txt" not in names

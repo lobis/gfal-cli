@@ -215,3 +215,37 @@ class TestStatMultipleFiles:
 
         assert rc == 0
         assert not out.startswith("\n")
+
+
+# ---------------------------------------------------------------------------
+# Verbose and flag acceptance
+# ---------------------------------------------------------------------------
+
+
+class TestStatVerbose:
+    def test_verbose_flag_accepted(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("x")
+
+        rc, out, err = run_gfal("stat", "-v", f.as_uri())
+
+        assert rc == 0
+        assert "File:" in out
+
+    def test_no_verify_flag_accepted(self, tmp_path):
+        f = tmp_path / "test.txt"
+        f.write_text("x")
+
+        rc, out, err = run_gfal("stat", "--no-verify", f.as_uri())
+
+        assert rc == 0
+
+    def test_stat_bare_path(self, tmp_path):
+        """gfal-stat should also accept a bare filesystem path (no file://)."""
+        f = tmp_path / "test.txt"
+        f.write_text("x")
+
+        rc, out, err = run_gfal("stat", str(f))
+
+        assert rc == 0
+        assert "File:" in out

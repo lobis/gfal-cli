@@ -240,3 +240,54 @@ class TestErrorOutput:
         rc, out, err = run_gfal("stat", (tmp_path / "missing").as_uri())
         assert rc != 0
         assert err.startswith("gfal-stat:")
+
+
+# ---------------------------------------------------------------------------
+# _format_error with empty str(e)
+# ---------------------------------------------------------------------------
+
+
+class TestFormatErrorEmptyStr:
+    """_format_error must handle exceptions whose str() is empty."""
+
+    def test_not_implemented_error_empty_str(self):
+        cb = CommandBase()
+        e = NotImplementedError()
+        assert str(e) == ""
+        result = cb._format_error(e)
+        # Should not return empty string; fall back to class name or type hint
+        assert result != ""
+
+    def test_value_error_empty_str(self):
+        cb = CommandBase()
+        e = ValueError()
+        result = cb._format_error(e)
+        assert result != ""
+
+    def test_not_implemented_format_error_unit(self):
+        """Unit test: _format_error on NotImplementedError() returns non-empty string."""
+        cb = CommandBase()
+        result = cb._format_error(NotImplementedError())
+        assert isinstance(result, str)
+        assert result != ""
+
+
+# ---------------------------------------------------------------------------
+# surl extra cases
+# ---------------------------------------------------------------------------
+
+
+class TestSurlExtra:
+    def test_xroot_url_unchanged(self):
+        url = "xroot://server.example.com//data/file"
+        assert surl(url) == url
+
+    def test_dav_url_unchanged(self):
+        """dav:// URLs should pass through surl unchanged (normalisation is in fs.py)."""
+        url = "dav://example.com/path"
+        assert surl(url) == url
+
+    def test_empty_path_is_cwd(self):
+        """surl of a relative path (no scheme) resolves to a file:// URI."""
+        result = surl("somefile.txt")
+        assert result.startswith("file://")

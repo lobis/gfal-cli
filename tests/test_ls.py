@@ -653,3 +653,89 @@ class TestLsSortByTime:
         names = [ln.split()[-1] for ln in out.splitlines() if ln.strip()]
         assert names[0] == "new.txt"
         assert names[1] == "old.txt"
+
+
+# ---------------------------------------------------------------------------
+# Sort by size (extra coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestLsSortBySize:
+    def test_sort_by_size(self, tmp_path):
+        small = tmp_path / "small.txt"
+        large = tmp_path / "large.txt"
+        small.write_bytes(b"x")
+        large.write_bytes(b"x" * 1000)
+
+        rc, out, err = run_gfal("ls", "-lS", tmp_path.as_uri())
+
+        assert rc == 0
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        # largest first: large.txt should appear before small.txt
+        idx_large = next(i for i, ln in enumerate(lines) if "large.txt" in ln)
+        idx_small = next(i for i, ln in enumerate(lines) if "small.txt" in ln)
+        assert idx_large < idx_small
+
+    def test_sort_by_size_flag(self, tmp_path):
+        (tmp_path / "a.txt").write_bytes(b"x")
+        (tmp_path / "b.txt").write_bytes(b"x" * 100)
+
+        rc, out, err = run_gfal("ls", "-l", "--sort=size", tmp_path.as_uri())
+
+        assert rc == 0
+
+    def test_sort_none_flag(self, tmp_path):
+        (tmp_path / "z.txt").write_bytes(b"z")
+        (tmp_path / "a.txt").write_bytes(b"a")
+
+        rc, out, err = run_gfal("ls", "-U", tmp_path.as_uri())
+
+        assert rc == 0
+        assert "z.txt" in out
+        assert "a.txt" in out
+
+
+# ---------------------------------------------------------------------------
+# Multiple URLs (extra coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestLsMultipleUrlsExtra:
+    def test_two_directories_header(self, tmp_path):
+        d1 = tmp_path / "dir1"
+        d2 = tmp_path / "dir2"
+        d1.mkdir()
+        d2.mkdir()
+        (d1 / "f1.txt").write_text("a")
+        (d2 / "f2.txt").write_text("b")
+
+        rc, out, err = run_gfal("ls", d1.as_uri(), d2.as_uri())
+
+        assert rc == 0
+        assert "f1.txt" in out
+        assert "f2.txt" in out
+
+    def test_one_exists_one_missing(self, tmp_path):
+        d = tmp_path / "exists"
+        d.mkdir()
+        (d / "file.txt").write_text("x")
+
+        rc, out, err = run_gfal("ls", d.as_uri(), (tmp_path / "no_such").as_uri())
+
+        assert rc != 0
+        assert "file.txt" in out  # existing dir still listed
+
+
+# ---------------------------------------------------------------------------
+# No args
+# ---------------------------------------------------------------------------
+
+
+class TestLsNoArgs:
+    def test_no_args_fails(self):
+        rc, out, err = run_gfal("ls")
+        assert rc != 0
+
+    def test_help_accepted(self):
+        rc, out, err = run_gfal("ls", "--help")
+        assert rc == 0
