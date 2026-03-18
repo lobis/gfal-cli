@@ -8,6 +8,8 @@ so true integration tests need running servers.  This file covers:
   2. CLI flag tests via run_gfal (using local files where TPC is N/A,
      verifying error handling and flag wiring).
   3. Behaviour of --tpc-only when TPC is not supported.
+  4. Auto-TPC: gfal-copy attempts TPC automatically for HTTP<->HTTP and
+     root<->root transfers (matching gfal2 default behaviour).
 """
 
 import hashlib
@@ -16,6 +18,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gfal_cli import tpc as tpc_mod
+from gfal_cli.copy import _tpc_applicable
 from helpers import run_gfal
 
 # ---------------------------------------------------------------------------
@@ -466,3 +469,70 @@ class TestTpcFallbackIntegrity:
 
         assert rc == 0
         assert hashlib.md5(dst.read_bytes()).hexdigest() == expected_md5
+
+
+# ---------------------------------------------------------------------------
+# _tpc_applicable — unit tests for the auto-TPC predicate
+# ---------------------------------------------------------------------------
+
+
+class TestTpcApplicable:
+    @pytest.mark.parametrize(
+        "src, dst",
+        [
+            ("https://src.example.com/file", "https://dst.example.com/file"),
+            ("http://src.example.com/file", "http://dst.example.com/file"),
+            ("http://src.example.com/file", "https://dst.example.com/file"),
+            ("root://src//file", "root://dst//file"),
+            ("xroot://src//file", "xroot://dst//file"),
+        ],
+    )
+    def test_applicable(self, src, dst):
+        assert _tpc_applicable(src, dst) is True
+
+    @pytest.mark.parametrize(
+        "src, dst",
+        [
+            ("file:///tmp/src", "file:///tmp/dst"),
+            ("https://src.example.com/file", "root://dst//file"),
+            ("root://src//file", "https://dst.example.com/file"),
+            ("file:///tmp/src", "https://dst.example.com/file"),
+        ],
+    )
+    def test_not_applicable(self, src, dst):
+        assert _tpc_applicable(src, dst) is False
+
+
+# ---------------------------------------------------------------------------
+# Auto-TPC: HTTP->HTTP copies attempt TPC automatically (like gfal2)
+# ---------------------------------------------------------------------------
+
+
+class TestAutoTpc:
+    def test_local_to_local_no_auto_tpc(self, tmp_path):
+        """file:// -> file:// should NOT trigger auto-TPC (just stream)."""
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"hello")
+
+        with patch("gfal_cli.tpc.do_tpc") as mock_tpc:
+            rc, out, err = run_gfal("cp", src.as_uri(), dst.as_uri())
+
+        # TPC is not called for local copies
+        mock_tpc.assert_not_called()
+        assert rc == 0
+        assert dst.read_bytes() == b"hello"
+
+    def test_copy_mode_streamed_disables_auto_tpc(self, tmp_path):
+        """--copy-mode=streamed should suppress auto-TPC even for HTTP->HTTP."""
+        src = tmp_path / "src.txt"
+        dst = tmp_path / "dst.txt"
+        src.write_bytes(b"hello")
+
+        # Local copy still works; the key is that TPC is not invoked
+        rc, out, err = run_gfal(
+            "cp", "--copy-mode=streamed", src.as_uri(), dst.as_uri()
+        )
+
+        assert rc == 0
+        assert dst.read_bytes() == b"hello"

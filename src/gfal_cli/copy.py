@@ -10,6 +10,7 @@ import threading
 import time
 import zlib
 from pathlib import Path
+from urllib.parse import urlparse
 
 from gfal_cli import base, fs
 from gfal_cli.progress import Progress
@@ -321,9 +322,17 @@ class CommandCopy(base.CommandBase):
         # ------------------------------------------------------------------
         # Third-party copy attempt
         # ------------------------------------------------------------------
-        use_tpc = getattr(self.params, "tpc", False) or getattr(
+        explicit_tpc = getattr(self.params, "tpc", False) or getattr(
             self.params, "tpc_only", False
         )
+        use_streamed = getattr(self.params, "copy_mode", None) == "streamed"
+        # Auto-TPC: mirrors gfal2's default behaviour — for HTTP<->HTTP and
+        # root<->root transfers, attempt TPC first and fall back to streaming
+        # unless the user explicitly requested streaming with --copy-mode=streamed.
+        auto_tpc = (
+            not explicit_tpc and not use_streamed and _tpc_applicable(src_url, dst_url)
+        )
+        use_tpc = explicit_tpc or auto_tpc
         if use_tpc and not self.params.dry_run:
             tpc_timeout = getattr(self.params, "transfer_timeout", 0) or None
             try:
@@ -361,7 +370,14 @@ class CommandCopy(base.CommandBase):
                     sys.stderr.write(
                         f"TPC not available ({e}), falling back to streaming\n"
                     )
-            # Any other exception propagates as a real error
+            except Exception:
+                if auto_tpc:
+                    # Auto-TPC failed (e.g. server returned error, auth issue);
+                    # fall back to client-side streaming silently unless verbose.
+                    if self.params.verbose:
+                        sys.stderr.write("Auto-TPC failed, falling back to streaming\n")
+                else:
+                    raise  # explicit --tpc: propagate the error
 
         # ------------------------------------------------------------------
         # Streaming (client-side) copy with optional per-file timeout
@@ -550,6 +566,23 @@ def _finalise_hasher(h, alg):
     if alg in ("ADLER32", "CRC32"):
         return f"{h[1]:08x}"
     return h.hexdigest()
+
+
+def _tpc_applicable(src_url, dst_url):
+    """Return True when TPC should be attempted automatically.
+
+    TPC is applicable when both endpoints use the same transport family:
+    - HTTP/HTTPS  <->  HTTP/HTTPS  (WebDAV COPY)
+    - root/xroot  <->  root/xroot  (XRootD CopyProcess)
+
+    This mirrors gfal2's behavior of attempting TPC by default for these
+    protocol pairs and falling back to streaming if TPC is unavailable.
+    """
+    src_s = urlparse(src_url).scheme.lower()
+    dst_s = urlparse(dst_url).scheme.lower()
+    http = {"http", "https"}
+    xrd = {"root", "xroot"}
+    return (src_s in http and dst_s in http) or (src_s in xrd and dst_s in xrd)
 
 
 def _is_special_file(path):
