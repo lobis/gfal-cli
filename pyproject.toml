@@ -38,10 +38,10 @@ gfal-token = "gfal_cli.shell:main"
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=9.0",
-    "pytest-cov>=7.0",
-    "pre-commit>=4.5",
-    "codespell>=2.4.1",
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "pre-commit>=3.0",
+    "codespell>=2.2.0",
 ]
 xrootd = [
     "fsspec-xrootd>=0.5.2; sys_platform != 'win32'",
