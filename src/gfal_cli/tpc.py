@@ -23,6 +23,7 @@ XRootD
     ``root://`` -> ``root://`` transfers.
 """
 
+import contextlib
 import sys
 from urllib.parse import urlparse
 
@@ -40,8 +41,17 @@ def do_tpc(
     timeout=None,
     verbose=False,
     scitag=None,
+    progress_callback=None,
 ):
     """Perform a third-party copy between two remote URLs.
+
+    Parameters
+    ----------
+    progress_callback:
+        Optional callable ``(bytes_transferred: int) -> None`` that is called
+        each time a WLCG performance marker is received during HTTP TPC.
+        Values are cumulative (total bytes transferred so far, not a delta).
+        Not called for XRootD TPC.
 
     Returns ``True`` on success.
 
@@ -71,6 +81,7 @@ def do_tpc(
             timeout=timeout,
             verbose=verbose,
             scitag=scitag,
+            progress_callback=progress_callback,
         )
 
     raise NotImplementedError(
@@ -100,7 +111,7 @@ def _build_session(opts):
     return session
 
 
-def _parse_tpc_body(resp):
+def _parse_tpc_body(resp, progress_callback=None):
     """Parse a WebDAV TPC response, including WLCG streaming perf-markers.
 
     The WLCG HTTP-TPC spec allows the server to send ``202 Accepted`` and
@@ -118,6 +129,9 @@ def _parse_tpc_body(resp):
     ``202 Accepted`` while still streaming performance markers.  We therefore
     read the body for *any* 2xx response — an empty body is treated as
     immediate success (covers plain 200/204 from simple servers).
+
+    If *progress_callback* is provided it is called with the cumulative number
+    of bytes transferred each time a complete perf-marker block is received.
     """
     if resp.status_code == 405:
         raise NotImplementedError(
@@ -138,11 +152,23 @@ def _parse_tpc_body(resp):
     # Servers that complete immediately return an empty body; that is fine —
     # the loop simply doesn't execute, and we fall through to success.
     last_non_empty = ""
+    in_marker = False
+    marker_bytes = 0
     for raw in resp.iter_lines(decode_unicode=True):
         line = (raw or "").strip()
-        if line.startswith("success:"):
+        if line == "Perf Marker":
+            in_marker = True
+            marker_bytes = 0
+        elif line == "End" and in_marker:
+            in_marker = False
+            if progress_callback is not None and marker_bytes > 0:
+                progress_callback(marker_bytes)
+        elif in_marker and line.startswith("Stripe Bytes Transferred:"):
+            with contextlib.suppress(ValueError):
+                marker_bytes = int(line.split(":", 1)[1].strip())
+        elif line.startswith("success:"):
             return
-        if line.startswith("failure:"):
+        elif line.startswith("failure:"):
             raise OSError(f"HTTP TPC server reported failure: {line[8:].strip()}")
         if line:
             last_non_empty = line
@@ -153,7 +179,9 @@ def _parse_tpc_body(resp):
     # Treat silent end-of-body as success (some implementations omit the line)
 
 
-def _http_tpc(src_url, dst_url, opts, *, mode, timeout, verbose, scitag):
+def _http_tpc(
+    src_url, dst_url, opts, *, mode, timeout, verbose, scitag, progress_callback=None
+):
     """Send a WebDAV COPY request to initiate an HTTP TPC transfer."""
     headers = {
         "Overwrite": "T",
@@ -184,7 +212,7 @@ def _http_tpc(src_url, dst_url, opts, *, mode, timeout, verbose, scitag):
         timeout=request_timeout,
         stream=True,
     )
-    _parse_tpc_body(resp)
+    _parse_tpc_body(resp, progress_callback=progress_callback)
     return True
 
 

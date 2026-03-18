@@ -335,6 +335,53 @@ class CommandCopy(base.CommandBase):
         use_tpc = explicit_tpc or auto_tpc
         if use_tpc and not self.params.dry_run:
             tpc_timeout = getattr(self.params, "transfer_timeout", 0) or None
+
+            # ------------------------------------------------------------------
+            # Progress display for TPC
+            #
+            # Explicit TPC (--tpc / --tpc-only): start immediately.
+            # Auto-TPC: lazy — only start on the first perf-marker so that a
+            # fast failure before any data moves falls back silently to streaming
+            # without confusing "[FAILED]" output.
+            # ------------------------------------------------------------------
+            show_progress = sys.stdout.isatty() and not self.params.verbose
+            tpc_start = time.monotonic()
+            tpc_progress_shown = [False]
+
+            def _start_tpc_progress():
+                if tpc_progress_shown[0]:
+                    return
+                tpc_progress_shown[0] = True
+                if show_progress:
+                    self.progress_bar = Progress(f"Copying {Path(src_url).name}")
+                    self.progress_bar.update(
+                        total_size=src_st.st_size if src_st.st_size else None
+                    )
+                    self.progress_bar.start()
+                else:
+                    print(
+                        f"Copying {src_st.st_size or 0} bytes  {src_url}  =>  {dst_url}"
+                    )
+
+            def _stop_tpc_progress(success):
+                if not tpc_progress_shown[0]:
+                    return
+                if show_progress:
+                    self.progress_bar.stop(success)
+                    print()
+
+            def _tpc_progress(bytes_transferred):
+                _start_tpc_progress()
+                if show_progress and src_st.st_size:
+                    self.progress_bar.update(
+                        curr_size=bytes_transferred,
+                        total_size=src_st.st_size,
+                        elapsed=time.monotonic() - tpc_start,
+                    )
+
+            if explicit_tpc:
+                _start_tpc_progress()
+
             try:
                 from gfal_cli import (
                     tpc as _tpc,  # lazy: tpc.py may not be installed  # noqa: PLC0415
@@ -348,9 +395,12 @@ class CommandCopy(base.CommandBase):
                     timeout=tpc_timeout,
                     verbose=bool(self.params.verbose),
                     scitag=getattr(self.params, "scitag", None),
+                    progress_callback=_tpc_progress,
                 )
+                _stop_tpc_progress(True)
                 return  # TPC succeeded — nothing more to do
             except ImportError as e:
+                _stop_tpc_progress(False)
                 if getattr(self.params, "tpc_only", False):
                     raise OSError(
                         "Third-party copy required (--tpc-only) but the tpc "
@@ -361,6 +411,7 @@ class CommandCopy(base.CommandBase):
                         "TPC module not available, falling back to streaming\n"
                     )
             except NotImplementedError as e:
+                _stop_tpc_progress(False)
                 if getattr(self.params, "tpc_only", False):
                     raise OSError(
                         f"Third-party copy required (--tpc-only) but not available: {e}"
@@ -371,6 +422,7 @@ class CommandCopy(base.CommandBase):
                         f"TPC not available ({e}), falling back to streaming\n"
                     )
             except Exception:
+                _stop_tpc_progress(False)
                 if auto_tpc:
                     # Auto-TPC failed (e.g. server returned error, auth issue);
                     # fall back to client-side streaming silently unless verbose.
