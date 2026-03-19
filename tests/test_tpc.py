@@ -702,8 +702,13 @@ class TestCredentialDelegation:
         session.request.return_value = resp
         return session
 
-    def test_credential_header_set_when_cert_present(self, tmp_path):
-        """Credential header is set when client_cert is in opts (WLCG TPC spec)."""
+    def test_no_credential_header_in_http_headers(self, tmp_path):
+        """Raw PEM must NOT appear as a Credential header — HTTP forbids newlines.
+
+        The X.509 proxy is delegated via the TLS session (session.cert), not
+        via an HTTP header.  Verify that no Credential header is set regardless
+        of whether client_cert is present.
+        """
         proxy = tmp_path / "proxy.pem"
         proxy.write_text(
             "-----BEGIN CERTIFICATE-----\nFAKEPEM\n-----END CERTIFICATE-----\n"
@@ -722,11 +727,11 @@ class TestCredentialDelegation:
                 scitag=None,
             )
         _, kwargs = session.request.call_args
-        assert "Credential" in kwargs["headers"]
-        assert "FAKEPEM" in kwargs["headers"]["Credential"]
+        # No raw-PEM Credential header — would be rejected by any HTTP server
+        assert "Credential" not in kwargs["headers"]
 
-    def test_no_credential_header_when_no_cert(self):
-        """No Credential header is sent when client_cert is absent."""
+    def test_no_credential_header_without_cert(self):
+        """No Credential header when no cert provided either."""
         session = self._make_session_mock()
         with patch.object(tpc_mod, "_build_session", return_value=session):
             tpc_mod._http_tpc(
@@ -741,14 +746,15 @@ class TestCredentialDelegation:
         _, kwargs = session.request.call_args
         assert "Credential" not in kwargs["headers"]
 
-    def test_credential_header_set_in_push_mode(self, tmp_path):
-        """Credential header is also set for push-mode TPC."""
+    def test_cert_still_passed_via_session(self, tmp_path):
+        """client_cert is forwarded to _build_session (TLS delegation), not headers."""
         proxy = tmp_path / "proxy.pem"
         proxy.write_text("PUSHCERT")
         opts = {"client_cert": str(proxy)}
 
-        session = self._make_session_mock()
-        with patch.object(tpc_mod, "_build_session", return_value=session):
+        with patch.object(
+            tpc_mod, "_build_session", return_value=self._make_session_mock()
+        ) as mock_build:
             tpc_mod._http_tpc(
                 "https://src.example.com/file",
                 "https://dst.example.com/file",
@@ -758,8 +764,8 @@ class TestCredentialDelegation:
                 verbose=False,
                 scitag=None,
             )
-        _, kwargs = session.request.call_args
-        assert "Credential" in kwargs["headers"]
+        # opts (including client_cert) must be forwarded to _build_session
+        mock_build.assert_called_once_with(opts)
 
 
 # ---------------------------------------------------------------------------
