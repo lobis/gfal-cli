@@ -145,7 +145,8 @@ class GfalCommands(base.CommandBase):
         print(f"  File: '{url}'")
         print(f"  Size: {st.st_size}\t{file_type_str(stat.S_IFMT(st.st_mode))}")
         print(
-            f"Access: ({stat.S_IMODE(st.st_mode):04o}/{file_mode_str(st.st_mode)})\tUid: {st.st_uid}\tGid: {st.st_gid}"
+            f"Access: ({stat.S_IMODE(st.st_mode):04o}/{file_mode_str(st.st_mode)})\t"
+            f"Uid: {st.st_uid}\tGid: {st.st_gid}\t"
         )
         print(
             "Access: {}".format(
@@ -274,9 +275,9 @@ class GfalCommands(base.CommandBase):
             for attr in attrs:
                 try:
                     val = fso.getxattr(path, attr)
-                    sys.stdout.write(f"{attr} = {val}\n")
+                    sys.stdout.write(f"{attr} = {val}\n\n")
                 except Exception as e:
-                    sys.stdout.write(f"{attr} FAILED: {e}\n")
+                    sys.stdout.write(f"{attr} FAILED: {e}\n\n")
 
 
 # ---------------------------------------------------------------------------

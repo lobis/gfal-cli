@@ -312,13 +312,14 @@ class CommandLs(base.CommandBase):
 
     def _print_entry(self, name, st, xattrs=None, *, size_width=None):
         if self.params.long:
-            size = st.st_size
+            size_val = st.st_size
             if self.params.human_readable:
-                size_str = _human_size(size)
-                size_field = size_str.rjust(4)
+                size_str = _human_size(size_val)
+                size_field = size_str.rjust(5)
             else:
-                w = size_width if size_width is not None else 9
-                size_field = str(size).rjust(w)
+                # Use a minimum width of 8 for size, matching standard ls -l
+                w = max(8, size_width if size_width is not None else 0)
+                size_field = str(size_val).rjust(w)
 
             date = _TIME_FORMATS[self.params.time_style](st.st_mtime)
 
@@ -330,8 +331,11 @@ class CommandLs(base.CommandBase):
                 ]
                 xattr_suffix = "  " + "  ".join(parts)
 
+            # Format: mode nlink uid gid size date name [xattrs]
+            # gfal2-util uses right-justified UID/GID (usually 5-8 chars)
+            # and a trailing tab before the newline.
             sys.stdout.write(
-                f"{file_mode_str(st.st_mode)} {st.st_nlink:3d} {st.st_uid:<5d} {st.st_gid:<5d}"
+                f"{file_mode_str(st.st_mode)} {st.st_nlink:3d} {st.st_uid:5d} {st.st_gid:5d}"
                 f" {size_field} {str(date).ljust(11)} {self._colorize(name, st.st_mode)}"
                 f"{xattr_suffix}\t\n"
             )
