@@ -36,7 +36,7 @@ pytestmark = pytest.mark.integration
 # Constants
 # ---------------------------------------------------------------------------
 
-_PILOT_BASE = "https://eospilot.cern.ch//eos/pilot/test/lobisapa"
+_PILOT_BASE = "https://eospilot.cern.ch//eos/pilot/opstest/dteam/gfal-cli/tmp"
 _PUBSRC = (
     "https://eospublic.cern.ch//eos/opendata/phenix/"
     "emcal-finding-pi0s-and-photons/single_cluster_r5.C"
