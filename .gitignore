@@ -191,9 +191,6 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
-# Reference implementation (not part of the project)
-gfal2-util/
-
 # PyPI configuration file
 .pypirc
 
@@ -211,3 +208,10 @@ __marimo__/
 
 # hatch-vcs auto-generated version file
 src/gfal_cli/_version.py
+
+# Reference implementation (not part of the project)
+gfal2-util/
+
+.idea/
+
+.claude/
