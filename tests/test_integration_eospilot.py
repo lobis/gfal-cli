@@ -37,6 +37,7 @@ pytestmark = pytest.mark.integration
 # ---------------------------------------------------------------------------
 
 _PILOT_BASE = "https://eospilot.cern.ch//eos/pilot/opstest/dteam/gfal-cli/tmp"
+_PILOT_NO_ACCESS = "https://eospilot.cern.ch//eos/pilot/opstest/dteam/gfal-cli/dteam-has-no-permissions-here"
 _PUBSRC = (
     "https://eospublic.cern.ch//eos/opendata/phenix/"
     "emcal-finding-pi0s-and-photons/single_cluster_r5.C"
@@ -224,6 +225,15 @@ class TestEospilotStreamingCopy:
         rc, out, err = _run("cp", proxy_cert, missing_src, dst)
         assert rc != 0
 
+    def test_copy_permission_denied(self, proxy_cert, tmp_path):
+        """Copying to a directory without permissions should fail (403)."""
+        src = tmp_path / "denied.bin"
+        src.write_bytes(b"denied")
+        dst = f"{_PILOT_NO_ACCESS}/denied.bin"
+        rc, out, err = _run("cp", proxy_cert, src.as_uri(), dst)
+        assert rc != 0
+        assert "Permission denied" in err or "403" in err
+
 
 # ---------------------------------------------------------------------------
 # TestEospilotStat
@@ -306,6 +316,12 @@ class TestEospilotLs:
         lines = [ln for ln in out.splitlines() if ln.strip()]
         assert len(lines) >= 1
 
+    def test_ls_permission_denied(self, proxy_cert):
+        """Listing a directory without permissions should fail (403)."""
+        rc, out, err = _run("ls", proxy_cert, _PILOT_NO_ACCESS)
+        assert rc != 0
+        assert "Permission denied" in err or "403" in err
+
 
 # ---------------------------------------------------------------------------
 # TestEospilotMkdirRm
@@ -352,6 +368,13 @@ class TestEospilotMkdirRm:
         missing = f"{pilot_dir}/no_such_file_rm_test.bin"
         rc, out, err = _run("rm", proxy_cert, missing)
         assert rc != 0
+
+    def test_mkdir_permission_denied(self, proxy_cert):
+        """Creating a directory in a no-access location should fail (403)."""
+        subdir = f"{_PILOT_NO_ACCESS}/subdir_denied"
+        rc, out, err = _run("mkdir", proxy_cert, subdir)
+        assert rc != 0
+        assert "Permission denied" in err or "403" in err
 
 
 # ---------------------------------------------------------------------------
