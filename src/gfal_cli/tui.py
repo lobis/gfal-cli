@@ -86,13 +86,13 @@ class GfalTui(App):
         height: 100%;
         border: solid #333;
     }
-    #remote-pane {
-        border: solid #007acc;
-    }
-    Label {
-        padding: 1;
-        background: #333;
+    .pane-label {
+        padding: 0 1;
+        background: $primary;
+        color: $text;
+        text-align: center;
         width: 100%;
+        text-style: bold;
     }
     Input {
         margin: 1;
@@ -150,6 +150,7 @@ class GfalTui(App):
         ("r", "refresh", "Refresh"),
         ("l", "toggle_log", "Toggle Log"),
         ("f5", "copy", "Copy"),
+        ("x", "swap", "Swap Panes"),
         ("v", "toggle_ssl", "SSL [OFF]"),
         ("t", "toggle_tpc", "TPC [ON]"),
     ]
@@ -157,17 +158,16 @@ class GfalTui(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="input-container"):
-            yield Button("Local ⮕ Remote", id="direction-button", variant="success")
             yield Input(
                 placeholder="Remote URL (e.g., root://... or https://...)",
                 id="url-input",
             )
         with Horizontal():
-            with Vertical(classes="pane"):
-                yield Label("Local Filesystem")
+            with Vertical(classes="pane", id="left-pane"):
+                yield Label("Source", classes="pane-label")
                 yield DirectoryTree("./", id="local-tree")
-            with Vertical(classes="pane", id="remote-pane"):
-                yield Label("Remote / Target")
+            with Vertical(classes="pane", id="right-pane"):
+                yield Label("Destination", classes="pane-label")
                 yield RemoteDirectoryTree(
                     "https://eospublic.cern.ch:8444/eos/opendata/cms/", id="remote-tree"
                 )
@@ -200,14 +200,15 @@ class GfalTui(App):
     async def update_remote(self, url: str):
         self.log_activity(f"Updating remote to: {url} (verify={self.ssl_verify})")
         try:
-            # Replace the old tree with a new one
-            remote_pane = self.query_one("#remote-pane", Vertical)
-            await remote_pane.query("#remote-tree").remove()
+            # Find the tree wherever it is
+            remote_tree = self.query_one("#remote-tree")
+            pane = remote_tree.parent
+            await remote_tree.remove()
 
             new_tree = RemoteDirectoryTree(
                 url, ssl_verify=self.ssl_verify, id="remote-tree"
             )
-            await remote_pane.mount(new_tree)
+            await pane.mount(new_tree)
         except Exception as e:
             self.log_activity(f"Error updating remote: {e}", level="error")
             self.notify(f"Error updating remote: {e}", severity="error")
@@ -355,43 +356,52 @@ class GfalTui(App):
         )
         self._update_toggle_labels()
 
-    @on(Button.Pressed, "#direction-button")
-    def on_direction_toggle(self, event: Button.Pressed) -> None:
-        """Switch the copy direction."""
-        btn = event.button
-        if btn.variant == "success":
-            btn.label = "Remote ⮕ Local"
-            btn.variant = "warning"
-        else:
-            btn.label = "Local ⮕ Remote"
-            btn.variant = "success"
-        self.log_activity(f"Copy direction changed to: {btn.label}")
+    async def action_swap(self) -> None:
+        """Swap the contents of the left and right panes."""
+        left_pane = self.query_one("#left-pane", Vertical)
+        right_pane = self.query_one("#right-pane", Vertical)
+
+        left_tree = left_pane.children[1]
+        right_tree = right_pane.children[1]
+
+        # Explicitly await removal and mounting to ensure DOM is stable for tests
+        await left_tree.remove()
+        await right_tree.remove()
+
+        await left_pane.mount(right_tree)
+        await right_pane.mount(left_tree)
+
+        self.log_activity("Panes swapped: Source and Destination content exchanged")
 
     def action_copy(self) -> None:
-        """Copy the selected file to the other pane."""
-        direction = str(self.query_one("#direction-button").label)
-        local_tree = self.query_one("#local-tree", DirectoryTree)
-        remote_tree = self.query_one("#remote-tree", RemoteDirectoryTree)
+        """Copy the selected file from Source (Left) to Destination (Right)."""
+        left_pane = self.query_one("#left-pane", Vertical)
+        right_pane = self.query_one("#right-pane", Vertical)
 
-        if "Local ⮕ Remote" in direction:
+        src_tree = left_pane.children[1]
+        dest_tree = right_pane.children[1]
+
+        # Get the focused node from the Source pane
+        node = src_tree.cursor_node
+        if not node or not node.data:
+            self.log_activity(
+                "No file selected in Source pane for copy", level="warning"
+            )
+            return
+
+        is_src_local = isinstance(src_tree, DirectoryTree)
+
+        if is_src_local:
             # Source is Local, Destination is Remote
-            node = local_tree.cursor_node
-            if not node or not node.data:
-                self.log_activity("No local file selected for copy", level="warning")
-                return
             src_path = str(node.data.path)
-            dest_dir = remote_tree.url  # Use the root of the remote tree
+            dest_dir = dest_tree.url
             self.run_worker(
                 self._do_copy(src_path, dest_dir, to_remote=True), thread=True
             )
         else:
             # Source is Remote, Destination is Local
-            node = remote_tree.cursor_node
-            if not node or not node.data:
-                self.log_activity("No remote file selected for copy", level="warning")
-                return
             src_path = node.data
-            dest_dir = str(local_tree.path)
+            dest_dir = str(dest_tree.path)
             self.run_worker(
                 self._do_copy(src_path, dest_dir, to_remote=False), thread=True
             )
