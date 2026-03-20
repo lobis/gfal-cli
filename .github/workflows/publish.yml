@@ -252,7 +252,7 @@ jobs:
         EOF
 
     - name: Upload Pages Artifact 📦
-      uses: actions/upload-pages-artifact@v3
+      uses: actions/upload-pages-artifact@v4
       with:
         path: ./repo/
 
