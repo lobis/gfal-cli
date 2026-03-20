@@ -4,7 +4,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
-from textual import on
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
@@ -160,7 +160,7 @@ class GfalTui(App):
         ("s", "stat", "Stat Info"),
         ("c", "checksum", "Checksum"),
         ("r", "refresh", "Refresh"),
-        ("l", "toggle_log", "Toggle Log"),
+        ("L", "toggle_log", "Toggle Log"),
         ("f5", "copy", "Copy"),
         ("x", "swap", "Swap Panes"),
         ("/", "search", "Search"),
@@ -168,6 +168,8 @@ class GfalTui(App):
         ("G", "cursor_bottom", "Bottom"),
         ("v", "toggle_ssl", "SSL [OFF]"),
         ("t", "toggle_tpc", "TPC [ON]"),
+        ("left,h", "focus_left", "Focus Left"),
+        ("right,l", "focus_right", "Focus Right"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -202,6 +204,21 @@ class GfalTui(App):
     def action_search(self) -> None:
         """Open a modal to search/input a new remote URL."""
         self.push_screen(UrlInputModal())
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle global keys, especially those swallowed by sub-widgets."""
+        if event.key == "left":
+            self.action_focus_left()
+        elif event.key == "right":
+            self.action_focus_right()
+
+    def action_focus_left(self) -> None:
+        """Focus the left pane (local tree)."""
+        self.query_one("#local-tree").focus()
+
+    def action_focus_right(self) -> None:
+        """Focus the right pane (remote tree)."""
+        self.query_one("#remote-tree").focus()
 
     def action_cursor_top(self) -> None:
         """Move cursor to the top of the focused tree."""
