@@ -1,13 +1,14 @@
 import threading
+from contextlib import suppress
 from pathlib import Path
 
 from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical
+from textual.reactive import reactive
 from textual.screen import ModalScreen
 from textual.widgets import (
     Button,
-    Checkbox,
     DirectoryTree,
     Footer,
     Header,
@@ -72,6 +73,10 @@ class GfalTui(App):
 
     TITLE = "gfal"
 
+    ssl_verify = reactive(False)
+    tpc_enabled = reactive(True)
+    log_file = reactive("/tmp/gfal-tui.log")
+
     CSS = """
     Screen {
         background: #1e1e1e;
@@ -101,7 +106,7 @@ class GfalTui(App):
         dock: top;
     }
     #log-window {
-        height: auto;
+        height: 10;
         border: thick $primary;
         margin: 1 2;
     }
@@ -150,8 +155,6 @@ class GfalTui(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="input-container"):
-            yield Checkbox("Enable TPC", value=True, id="tpc-toggle")
-            yield Checkbox("Verify SSL", value=False, id="ssl-toggle")
             yield Button("Local ⮕ Remote", id="direction-button", variant="success")
             yield Input(
                 placeholder="Remote URL (e.g., root://... or https://...)",
@@ -169,6 +172,28 @@ class GfalTui(App):
         yield RichLog(id="log-window", auto_scroll=True, max_lines=1000)
         yield Footer()
 
+    def on_mount(self) -> None:
+        """Called when the app is mounted."""
+        self._update_toggle_labels()
+
+    def _update_toggle_labels(self) -> None:
+        """Update the footer labels for SSL and TPC."""
+        ssl_status = "ON" if self.ssl_verify else "OFF"
+        tpc_status = "ON" if self.tpc_enabled else "OFF"
+        # Bind to app
+        self.bind("v", "toggle_ssl", description=f"SSL [{ssl_status}]")
+        self.bind("t", "toggle_tpc", description=f"TPC [{tpc_status}]")
+        # Also bind to screen if it exists, as Footer often tracks screen bindings
+        try:
+            if self.screen:
+                self.screen.bind("v", "toggle_ssl", description=f"SSL [{ssl_status}]")
+                self.screen.bind("t", "toggle_tpc", description=f"TPC [{tpc_status}]")
+        except Exception:
+            pass
+        self.refresh_bindings()
+        with suppress(Exception):
+            self.query_one(Footer).refresh()
+
     @on(Input.Submitted, "#url-input")
     async def handle_url(self, event: Input.Submitted):
         url = event.value
@@ -178,14 +203,15 @@ class GfalTui(App):
         await self.update_remote(url)
 
     async def update_remote(self, url: str):
-        ssl_verify = self.query_one("#ssl-toggle", Checkbox).value
-        self.log_activity(f"Updating remote to: {url} (verify={ssl_verify})")
+        self.log_activity(f"Updating remote to: {url} (verify={self.ssl_verify})")
         try:
             # Replace the old tree with a new one
             remote_pane = self.query_one("#remote-pane", Vertical)
             await remote_pane.query("#remote-tree").remove()
 
-            new_tree = RemoteDirectoryTree(url, ssl_verify=ssl_verify, id="remote-tree")
+            new_tree = RemoteDirectoryTree(
+                url, ssl_verify=self.ssl_verify, id="remote-tree"
+            )
             await remote_pane.mount(new_tree)
         except Exception as e:
             self.log_activity(f"Error updating remote: {e}", level="error")
@@ -209,6 +235,9 @@ class GfalTui(App):
             log_window.write(
                 f"[{timestamp}] [{color}]{level.upper():>7}[/{color}] {message}"
             )
+            # Persistence to file
+            with suppress(Exception), Path(self.log_file).open("a") as f:
+                f.write(f"[{timestamp}] [{level.upper():>7}] {message}\n")
 
         if self._thread_id == threading.get_ident():
             do_log()
@@ -227,8 +256,7 @@ class GfalTui(App):
         def get_stat():
             try:
                 # Determine if it's local or remote based on the tree or path
-                ssl_verify = self.query_one("#ssl-toggle", Checkbox).value
-                fs, fs_path = url_to_fs(path, ssl_verify=ssl_verify)
+                fs, fs_path = url_to_fs(path, ssl_verify=self.ssl_verify)
                 info = fs.info(fs_path)
                 msg = f"Stat Info for {path}:\n"
                 for k, v in sorted(info.items()):
@@ -255,8 +283,7 @@ class GfalTui(App):
 
         def get_checksum():
             try:
-                ssl_verify = self.query_one("#ssl-toggle", Checkbox).value
-                fs, fs_path = url_to_fs(path, ssl_verify=ssl_verify)
+                fs, fs_path = url_to_fs(path, ssl_verify=self.ssl_verify)
                 # Try common checksum algorithms
                 result = None
                 for _ in ["ADLER32", "MD5"]:
@@ -311,6 +338,28 @@ class GfalTui(App):
             f"Log window toggled: {'visible' if log.display else 'hidden'}"
         )
 
+    def action_toggle_ssl(self) -> None:
+        """Toggle SSL verification."""
+        self.ssl_verify = not self.ssl_verify
+        self._update_toggle_labels()
+        self.log_activity(
+            f"SSL verification turned {'ON' if self.ssl_verify else 'OFF'}"
+        )
+        # If remote tree exists, we might want to refresh it or notify it.
+        # For now, just log and it will apply to NEXT operations/loads.
+        # To be thorough, we can trigger a refresh of the remote target.
+        remote_tree = self.query_one("#remote-tree", RemoteDirectoryTree)
+        if remote_tree:
+            self.run_worker(self.update_remote(remote_tree.url))
+
+    def action_toggle_tpc(self) -> None:
+        """Toggle Third Party Copy."""
+        self.tpc_enabled = not self.tpc_enabled
+        self._update_toggle_labels()
+        self.log_activity(
+            f"Third Party Copy turned {'ON' if self.tpc_enabled else 'OFF'}"
+        )
+
     @on(Button.Pressed, "#direction-button")
     def on_direction_toggle(self, event: Button.Pressed) -> None:
         """Switch the copy direction."""
@@ -359,20 +408,19 @@ class GfalTui(App):
 
             src_name = Path(src).name
             dest_path = f"{dest_dir.rstrip('/')}/{src_name}"
-            ssl_verify = self.query_one("#ssl-toggle", Checkbox).value
 
             self.log_activity(f"Starting copy: {src} -> {dest_path}")
 
             if to_remote:
                 # Local -> Remote (put)
                 # We need the remote filesystem
-                fs, _ = url_to_fs(dest_dir, ssl_verify=ssl_verify)
+                fs, _ = url_to_fs(dest_dir, ssl_verify=self.ssl_verify)
                 # fsspec put() handles directories if recursive=True
                 fs.put(src, dest_path, recursive=True)
             else:
                 # Remote -> Local (get)
                 # We need the source remote filesystem
-                fs, _ = url_to_fs(src, ssl_verify=ssl_verify)
+                fs, _ = url_to_fs(src, ssl_verify=self.ssl_verify)
                 fs.get(src, dest_path, recursive=True)
 
             self.log_activity(f"Successfully copied to {dest_path}", level="success")

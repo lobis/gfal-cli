@@ -1,7 +1,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from textual.widgets import Button, Checkbox, Input, RichLog, Tree
+from textual.widgets import Button, Input, RichLog, Tree
 
 from gfal_cli.tui import GfalTui, MessageModal
 
@@ -13,11 +13,8 @@ async def test_tui_composition():
     async with app.run_test():
         # Check for key widgets
         assert app.query_one("#url-input", Input)
-        assert app.query_one("#ssl-toggle", Checkbox)
-        assert app.query_one("#tpc-toggle", Checkbox)
         assert app.query_one("#remote-pane")
         assert app.query_one("#log-window", RichLog)
-        assert app.query_one("#tpc-toggle", Checkbox).value is True
         assert app.query_one("#direction-button", Button).label == "Local ⮕ Remote"
 
 
@@ -82,27 +79,19 @@ async def test_tui_ssl_toggle():
             for _ in range(10):
                 await pilot.pause()
 
-            # Toggle Checkbox
-            checkbox = app.query_one("#ssl-toggle", Checkbox)
-            checkbox.value = True
+            # Toggle via hotkey
+            await pilot.press("v")
+            await pilot.pause()
 
             # Submit URL
             input_widget = app.query_one("#url-input", Input)
             input_widget.value = test_url
             input_widget.focus()
             await pilot.press("enter")
+            await pilot.pause(0.5)
 
             # Wait for the call to happen
-            for _ in range(20):
-                await pilot.pause()
-                try:
-                    mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)
-                    break
-                except AssertionError:
-                    pass
-            else:
-                # One last attempt to raise the error
-                mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)
+            mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)
 
 
 @pytest.mark.asyncio
@@ -263,19 +252,18 @@ async def test_tui_url_input_submit():
 
 @pytest.mark.asyncio
 async def test_tui_tpc_toggle_state():
-    """Verify that the TPC toggle state is correctly handled."""
+    """Verify that the TPC toggle state is correctly handled via hotkey."""
     app = GfalTui()
     async with app.run_test() as pilot:
-        tpc_checkbox = app.query_one("#tpc-toggle", Checkbox)
-        assert tpc_checkbox.value is True  # Enabled by default
+        assert app.tpc_enabled is True  # Enabled by default
 
-        await pilot.click(tpc_checkbox)
+        await pilot.press("t")
         await pilot.pause()
-        assert tpc_checkbox.value is False
+        assert app.tpc_enabled is False
 
-        await pilot.click(tpc_checkbox)
+        await pilot.press("t")
         await pilot.pause()
-        assert tpc_checkbox.value is True
+        assert app.tpc_enabled is True
 
 
 @pytest.mark.asyncio
@@ -427,3 +415,57 @@ async def test_tui_unmount_cleanup():
     with patch.object(app.workers, "cancel_all") as mock_cancel:
         app.on_unmount()
         mock_cancel.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_tui_log_persistence(tmp_path):
+    """Verify that TUI logs are persisted to a file."""
+    log_file = tmp_path / "test.log"
+    app = GfalTui()
+    app.log_file = str(log_file)
+    async with app.run_test() as pilot:
+        app.log_activity("Test log message")
+        await pilot.pause()
+
+        assert log_file.exists()
+        content = log_file.read_text()
+        assert "Test log message" in content
+
+
+@pytest.mark.asyncio
+async def test_tui_toggle_label_update():
+    """Verify that the TPC toggle label in the footer updates."""
+    app = GfalTui()
+    async with app.run_test() as pilot:
+        # Check initial label for TPC
+        def get_desc(key):
+            try:
+                # Check screen bindings first as they override app bindings in the footer
+                # Use [-1] to get the most recent binding for the key
+                return app.screen._bindings.key_to_bindings[key][-1].description
+            except (KeyError, IndexError, AttributeError):
+                try:
+                    return app._bindings.key_to_bindings[key][-1].description
+                except (KeyError, IndexError):
+                    return None
+
+        assert get_desc("t") == "TPC [ON]"
+
+        await pilot.press("t")
+        await pilot.pause()
+        assert get_desc("t") == "TPC [OFF]"
+
+        await pilot.press("t")
+        await pilot.pause()
+        assert get_desc("t") == "TPC [ON]"
+
+        # Check SSL label
+        assert get_desc("v") == "SSL [OFF]"
+        await pilot.press("v")
+        await pilot.pause()
+        await pilot.pause(0.5)
+        assert get_desc("v") == "SSL [ON]"
+
+        await pilot.press("v")
+        await pilot.pause()
+        assert get_desc("v") == "SSL [OFF]"
