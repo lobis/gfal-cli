@@ -55,14 +55,23 @@ def _make_session(storage_options):
 
 def _http_fs_opts(storage_options):
     """Convert storage_options to kwargs for fsspec's HTTPFileSystem."""
+    from functools import partial
+
     from gfal_cli.fs import _no_verify_get_client, _verify_get_client
 
     opts = {k: v for k, v in storage_options.items() if k != "ssl_verify"}
     verify = storage_options.get("ssl_verify", True)
+    ipv4_only = storage_options.get("ipv4_only", False)
+    ipv6_only = storage_options.get("ipv6_only", False)
+
     if not verify:
-        opts["get_client"] = _no_verify_get_client
+        opts["get_client"] = partial(
+            _no_verify_get_client, ipv4_only=ipv4_only, ipv6_only=ipv6_only
+        )
     else:
-        opts["get_client"] = _verify_get_client
+        opts["get_client"] = partial(
+            _verify_get_client, verify=True, ipv4_only=ipv4_only, ipv6_only=ipv6_only
+        )
     return opts
 
 

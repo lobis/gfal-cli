@@ -53,18 +53,20 @@ def get_ssl_context(verify=True):
 
 async def _no_verify_get_client(loop=None, **kwargs):
     """aiohttp client factory for fsspec without SSL verification."""
+    return await _verify_get_client(loop=loop, verify=False, **kwargs)
+
+
+async def _verify_get_client(
+    loop=None, verify=True, ipv4_only=False, ipv6_only=False, **kwargs
+):
+    """aiohttp client factory for fsspec with system trust (truststore) and IP family support."""
+    import socket
+
     import aiohttp
 
-    ctx = get_ssl_context(verify=False)
-    return aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ctx))
-
-
-async def _verify_get_client(loop=None, **kwargs):
-    """aiohttp client factory for fsspec with system trust (truststore)."""
-    import aiohttp
-
-    ctx = get_ssl_context(verify=True)
-    return aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ctx))
+    ctx = get_ssl_context(verify=verify)
+    family = socket.AF_INET if ipv4_only else (socket.AF_INET6 if ipv6_only else 0)
+    return aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=ctx, family=family))
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +165,10 @@ def build_storage_options(params):
     if cert:
         opts["client_cert"] = cert
         opts["client_key"] = key or cert
+    if getattr(params, "ipv4_only", False):
+        opts["ipv4_only"] = True
+    if getattr(params, "ipv6_only", False):
+        opts["ipv6_only"] = True
     if not getattr(params, "ssl_verify", True):
         opts["ssl_verify"] = False
     # Bearer token / macaroon: read from standard WLCG env vars.

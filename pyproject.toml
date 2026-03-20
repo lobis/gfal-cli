@@ -43,6 +43,7 @@ gfal-token = "gfal_cli.shell:main"
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
+    "pytest-asyncio>=0.23",
     "pre-commit>=3.0",
     "codespell>=2.2.0",
 ]

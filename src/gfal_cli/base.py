@@ -179,17 +179,19 @@ class CommandBase:
         )
         self.parser.add_argument(
             "-4",
+            "--ipv4",
             action="store_true",
             default=False,
             dest="ipv4_only",
-            help="force IPv4 addresses only (GridFTP only; accepted for compatibility; ignored)",
+            help="force IPv4 addresses only",
         )
         self.parser.add_argument(
             "-6",
+            "--ipv6",
             action="store_true",
             default=False,
             dest="ipv6_only",
-            help="force IPv6 addresses only (GridFTP only; accepted for compatibility; ignored)",
+            help="force IPv6 addresses only",
         )
 
         for args, kwargs in getattr(func, "arguments", []):
@@ -319,6 +321,18 @@ class CommandBase:
                 self.return_code = 1
 
     def execute(self, func):
+        # Forced IP family (IPv4/v6)
+        # This affects the `requests` layer globally for the duration of the command.
+        ipv4_only = getattr(self.params, "ipv4_only", False)
+        ipv6_only = getattr(self.params, "ipv6_only", False)
+        if ipv4_only or ipv6_only:
+            import socket
+
+            import urllib3.util.connection as nsock
+
+            family = socket.AF_INET if ipv4_only else socket.AF_INET6
+            nsock.allowed_gai_family = lambda: family
+
         # Apply cert/key to environment (XRootD reads X509_* env vars)
         if self.params.cert:
             key = self.params.key or self.params.cert
