@@ -327,9 +327,33 @@ class GfalTui(App):
 
         self.run_worker(get_stat, thread=True)
 
+    def _get_focused_tree(self) -> Tree | None:
+        """Helper to get the currently focused tree widget."""
+        # Try to find which pane is focused, then get its tree
+        focused = self.focused
+        if not focused:
+            # Default to left pane
+            return self.query_one("#local-tree", Tree)
+
+        # If we focused the tree directly
+        if isinstance(focused, Tree):
+            return focused
+
+        # If we focused a pane container
+        if focused.id == "left-pane":
+            return self.query_one("#local-tree", Tree)
+        if focused.id == "right-pane":
+            return self.query_one("#remote-tree", Tree)
+
+        # Fallback
+        return self.query_one("#local-tree", Tree)
+
     def action_checksum(self) -> None:
         """Calculate and log checksum for the selected node."""
-        node = self.query_one("Tree:focus").cursor_node
+        tree = self._get_focused_tree()
+        if not tree:
+            return
+        node = tree.cursor_node
         path = self._get_node_path(node)
         if not path:
             return
@@ -344,7 +368,7 @@ class GfalTui(App):
                     try:
                         # Some fsspec backends support checksum(path)
                         if hasattr(fs, "checksum"):
-                            result = fs.checksum(fs_path)
+                            result = fs.checksum(fs_path, a)
                             if result:
                                 algo = a
                                 break
