@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -27,7 +27,7 @@ jobs:
       run: python -m build
 
     - name: Store distributions
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: python-package-distributions
         path: dist/
@@ -48,7 +48,7 @@ jobs:
     - name: Install git
       run: dnf install -y git
 
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -62,13 +62,13 @@ jobs:
       run: make rpm
 
     - name: Store RPMs
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: rpm-package-distributions-${{ matrix.os.name }}
         path: rpmbuild/RPMS/*/*.rpm
 
     - name: Store SRPMs
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: srpm-package-distributions-${{ matrix.os.name }}
         path: rpmbuild/SRPMS/*.src.rpm
@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         fetch-depth: 0
 
@@ -130,7 +130,7 @@ jobs:
           usr/
 
     - name: Store DEBs
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: deb-package-distributions
         path: "*.deb"
@@ -160,7 +160,7 @@ jobs:
 
     steps:
     - name: Download package
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: ${{ matrix.target.artifact }}
 
@@ -185,7 +185,7 @@ jobs:
 
     steps:
     - name: Download distributions
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         name: python-package-distributions
         path: dist/
@@ -205,10 +205,10 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: artifacts/
         merge-multiple: true
@@ -252,7 +252,7 @@ jobs:
         EOF
 
     - name: Upload Pages Artifact 📦
-      uses: actions/upload-pages-artifact@v3
+      uses: actions/upload-pages-artifact@v4
       with:
         path: ./repo/
 
@@ -269,7 +269,7 @@ jobs:
 
     steps:
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v8
       with:
         path: artifacts/
         merge-multiple: true
