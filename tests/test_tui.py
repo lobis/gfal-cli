@@ -437,17 +437,17 @@ async def test_tui_toggle_label_update():
     """Verify that the TPC toggle label in the footer updates."""
     app = GfalTui()
     async with app.run_test() as pilot:
+        app.refresh_bindings()
+        if app.screen:
+            app.screen.refresh_bindings()
+
         # Check initial label for TPC
         def get_desc(key):
             try:
-                # Check screen bindings first as they override app bindings in the footer
                 # Use [-1] to get the most recent binding for the key
-                return app.screen._bindings.key_to_bindings[key][-1].description
-            except (KeyError, IndexError, AttributeError):
-                try:
-                    return app._bindings.key_to_bindings[key][-1].description
-                except (KeyError, IndexError):
-                    return None
+                return app._bindings.key_to_bindings[key][-1].description
+            except (KeyError, IndexError):
+                return None
 
         assert get_desc("t") == "TPC [ON]"
 

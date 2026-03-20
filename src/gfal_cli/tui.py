@@ -150,6 +150,8 @@ class GfalTui(App):
         ("r", "refresh", "Refresh"),
         ("l", "toggle_log", "Toggle Log"),
         ("f5", "copy", "Copy"),
+        ("v", "toggle_ssl", "SSL [OFF]"),
+        ("t", "toggle_tpc", "TPC [ON]"),
     ]
 
     def compose(self) -> ComposeResult:
@@ -174,22 +176,15 @@ class GfalTui(App):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
+        self.log_activity("Welcome to gfal-cli TUI", level="info")
         self._update_toggle_labels()
 
     def _update_toggle_labels(self) -> None:
         """Update the footer labels for SSL and TPC."""
         ssl_status = "ON" if self.ssl_verify else "OFF"
         tpc_status = "ON" if self.tpc_enabled else "OFF"
-        # Bind to app
         self.bind("v", "toggle_ssl", description=f"SSL [{ssl_status}]")
         self.bind("t", "toggle_tpc", description=f"TPC [{tpc_status}]")
-        # Also bind to screen if it exists, as Footer often tracks screen bindings
-        try:
-            if self.screen:
-                self.screen.bind("v", "toggle_ssl", description=f"SSL [{ssl_status}]")
-                self.screen.bind("t", "toggle_tpc", description=f"TPC [{tpc_status}]")
-        except Exception:
-            pass
         self.refresh_bindings()
         with suppress(Exception):
             self.query_one(Footer).refresh()
@@ -341,10 +336,10 @@ class GfalTui(App):
     def action_toggle_ssl(self) -> None:
         """Toggle SSL verification."""
         self.ssl_verify = not self.ssl_verify
-        self._update_toggle_labels()
         self.log_activity(
             f"SSL verification turned {'ON' if self.ssl_verify else 'OFF'}"
         )
+        self._update_toggle_labels()
         # If remote tree exists, we might want to refresh it or notify it.
         # For now, just log and it will apply to NEXT operations/loads.
         # To be thorough, we can trigger a refresh of the remote target.
@@ -355,10 +350,10 @@ class GfalTui(App):
     def action_toggle_tpc(self) -> None:
         """Toggle Third Party Copy."""
         self.tpc_enabled = not self.tpc_enabled
-        self._update_toggle_labels()
         self.log_activity(
             f"Third Party Copy turned {'ON' if self.tpc_enabled else 'OFF'}"
         )
+        self._update_toggle_labels()
 
     @on(Button.Pressed, "#direction-button")
     def on_direction_toggle(self, event: Button.Pressed) -> None:
