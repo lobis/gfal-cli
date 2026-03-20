@@ -217,3 +217,5 @@ gfal2-util/
 .claude/
 
 !gfal-cli.spec
+
+rpmbuild/

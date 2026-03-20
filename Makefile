@@ -1,12 +1,10 @@
 NAME = gfal-cli
 NAME_DIST = gfal_cli
 SPECFILE = $(NAME).spec
-VERSION = $(shell .venv/bin/python3 -c 'from src.gfal_cli._version import __version__; print(__version__)' | sed 's/\+.*//')
-RELEASE = $(shell .venv/bin/python3 -c 'from src.gfal_cli._version import __version__; print(__version__)' | grep -o '+.*' | sed 's/+/./' || echo "1")
 DIST_DIR = dist
 RPMBUILD = $(shell pwd)/rpmbuild
 
-.PHONY: all clean dist srpm rpm
+.PHONY: all clean dist srpm rpm prepare
 
 all: dist
 
@@ -20,18 +18,23 @@ dist: clean
 	python3 -m build
 
 prepare: dist
-	mkdir -p $(RPMBUILD)/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
-	cp $(DIST_DIR)/$(NAME_DIST)-$(VERSION)*.tar.gz $(RPMBUILD)/SOURCES/$(NAME)-$(VERSION).tar.gz
+	@VERSION=$$(python3 -m hatchling version | sed 's/\+.*//'); \
+	mkdir -p $(RPMBUILD)/{BUILD,RPMS,SOURCES,SPECS,SRPMS}; \
+	cp $(DIST_DIR)/$(NAME_DIST)-$${VERSION}*.tar.gz $(RPMBUILD)/SOURCES/$(NAME)-$${VERSION}.tar.gz; \
 	cp $(SPECFILE) $(RPMBUILD)/SPECS/
 
 srpm: prepare
-	rpmbuild -bs $(SPECFILE) \
+	@VERSION=$$(python3 -m hatchling version | sed 's/\+.*//'); \
+	RELEASE=$$(python3 -m hatchling version | grep -o '+.*' | sed 's/+/./' || echo "1"); \
+	rpmbuild -bs $(RPMBUILD)/SPECS/$(SPECFILE) \
 		--define "_topdir $(RPMBUILD)" \
-		--define "version $(VERSION)" \
-		--define "release $(RELEASE)"
+		--define "version $${VERSION}" \
+		--define "release $${RELEASE}"
 
 rpm: srpm
-	rpmbuild -bb $(SPECFILE) \
+	@VERSION=$$(python3 -m hatchling version | sed 's/\+.*//'); \
+	RELEASE=$$(python3 -m hatchling version | grep -o '+.*' | sed 's/+/./' || echo "1"); \
+	rpmbuild -bb $(RPMBUILD)/SPECS/$(SPECFILE) \
 		--define "_topdir $(RPMBUILD)" \
-		--define "version $(VERSION)" \
-		--define "release $(RELEASE)"
+		--define "version $${VERSION}" \
+		--define "release $${RELEASE}"

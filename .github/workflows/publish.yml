@@ -113,7 +113,7 @@ jobs:
 
     - name: Build DEB
       run: |
-        VERSION=$(python3 -c 'from src.gfal_cli._version import __version__; print(__version__)' | sed 's/\+.*//')
+        VERSION=$(python3 -m hatchling version | sed 's/\+.*//')
         fpm -s python -t deb \
           --name python3-gfal-cli \
           --version "$VERSION" \
