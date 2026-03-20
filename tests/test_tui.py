@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from textual.widgets import Checkbox, Input, Tree
+from textual.widgets import Checkbox, Input, RichLog, Tree
 
 from gfal_cli.tui import GfalTui
 
@@ -16,6 +16,7 @@ async def test_tui_composition():
         assert app.query_one("#ssl-verify", Checkbox)
         assert app.query_one("#local-tree")
         assert app.query_one("#remote-pane")
+        assert app.query_one("#log-window", RichLog)
 
 
 @pytest.mark.asyncio
@@ -34,23 +35,24 @@ async def test_tui_url_submission():
 
         async with app.run_test() as pilot:
             # Wait for any background workers (like the initial load)
-            for _ in range(5):
+            for _ in range(10):
                 await pilot.pause()
 
             # Set URL and submit
             input_widget = app.query_one("#url-input", Input)
             input_widget.value = test_url
+            input_widget.focus()
             await pilot.press("enter")
 
             # Wait for the tree to mount and its initial expand worker
-            for _ in range(5):
-                await pilot.pause()
-
-            # Find the tree that matches our test URL
             tree = None
-            for t in app.query(Tree):
-                if str(t.root.label) == test_url:
-                    tree = t
+            for _ in range(20):
+                await pilot.pause()
+                for t in app.query(Tree):
+                    if str(t.root.label) == test_url:
+                        tree = t
+                        break
+                if tree and tree.root.children:
                     break
 
             assert tree is not None, "Could not find a tree with the test URL"
@@ -75,7 +77,7 @@ async def test_tui_ssl_toggle():
 
         async with app.run_test() as pilot:
             # Wait for initial load
-            for _ in range(5):
+            for _ in range(10):
                 await pilot.pause()
 
             # Toggle Checkbox
@@ -85,9 +87,17 @@ async def test_tui_ssl_toggle():
             # Submit URL
             input_widget = app.query_one("#url-input", Input)
             input_widget.value = test_url
+            input_widget.focus()
             await pilot.press("enter")
-            for _ in range(5):
-                await pilot.pause()
 
-            # Ensure ssl_verify=True was passed
-            mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)
+            # Wait for the call to happen
+            for _ in range(20):
+                await pilot.pause()
+                try:
+                    mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)
+                    break
+                except AssertionError:
+                    pass
+            else:
+                # One last attempt to raise the error
+                mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)

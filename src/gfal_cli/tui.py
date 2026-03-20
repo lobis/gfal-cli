@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 
 from textual import on
@@ -10,6 +11,7 @@ from textual.widgets import (
     Header,
     Input,
     Label,
+    RichLog,
     Tree,
 )
 
@@ -31,24 +33,35 @@ class RemoteDirectoryTree(Tree):
     def _on_tree_node_expanded(self, event: Tree.NodeExpanded):
         node = event.node
         if not node.children:
-            self.run_worker(self.load_directory(node))
+            self.run_worker(lambda: self.load_directory(node), thread=True)
 
-    async def load_directory(self, node):
+    def load_directory(self, node):
         path = node.data
+        self.app.log_activity(f"Loading directory: {path}")
         try:
             fs, fs_path = url_to_fs(path, ssl_verify=self.ssl_verify)
             # Use detail=True to distinguish files and directories
             entries = fs.ls(fs_path, detail=True)
-            for entry in sorted(
-                entries, key=lambda e: (e["type"] != "directory", e["name"])
-            ):
-                name = Path(entry["name"]).name
-                if not name:
-                    continue
-                is_dir = entry["type"] == "directory"
-                node.add(name, data=entry["name"], allow_expand=is_dir)
+
+            def add_nodes():
+                for entry in sorted(
+                    entries, key=lambda e: (e["type"] != "directory", e["name"])
+                ):
+                    name = Path(entry["name"]).name
+                    if not name:
+                        continue
+                    is_dir = entry["type"] == "directory"
+                    node.add(name, data=entry["name"], allow_expand=is_dir)
+                self.app.log_activity(
+                    f"Loaded {len(entries)} items from {path}", level="success"
+                )
+
+            self.app.call_from_thread(add_nodes)
         except Exception as e:
-            self.app.notify(f"Error loading {path}: {e}", severity="error")
+            self.app.log_activity(f"Failed to load {path}: {e}", level="error")
+            self.app.call_from_thread(
+                self.app.notify, f"Error loading {path}: {e}", severity="error"
+            )
 
 
 class GfalTui(App):
@@ -84,6 +97,12 @@ class GfalTui(App):
         height: auto;
         dock: top;
     }
+    #log-window {
+        height: 10;
+        border-top: solid #555;
+        background: #000;
+        color: #ccc;
+    }
     """
 
     BINDINGS = [
@@ -109,6 +128,7 @@ class GfalTui(App):
                 yield RemoteDirectoryTree(
                     "https://eospublic.cern.ch:8444/eos/opendata/cms/", id="remote-tree"
                 )
+        yield RichLog(id="log-window", auto_scroll=True, max_lines=1000)
         yield Footer()
 
     @on(Input.Submitted, "#url-input")
@@ -121,17 +141,41 @@ class GfalTui(App):
 
     async def update_remote(self, url: str):
         ssl_verify = self.query_one("#ssl-verify", Checkbox).value
+        self.log_activity(f"Updating remote to: {url} (verify={ssl_verify})")
         try:
             # Replace the old tree with a new one
             remote_pane = self.query_one("#remote-pane", Vertical)
-            old_tree = self.query("#remote-tree")
-            if old_tree:
-                await old_tree.remove()
+            await remote_pane.query("#remote-tree").remove()
 
             new_tree = RemoteDirectoryTree(url, ssl_verify=ssl_verify, id="remote-tree")
             await remote_pane.mount(new_tree)
         except Exception as e:
+            self.log_activity(f"Error updating remote: {e}", level="error")
             self.notify(f"Error updating remote: {e}", severity="error")
+
+    def log_activity(self, message: str, level: str = "info"):
+        """Log a message to the TUI log window."""
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        colors = {
+            "info": "bright_blue",
+            "success": "bright_green",
+            "error": "bright_red",
+            "warning": "bright_yellow",
+        }
+        color = colors.get(level, "white")
+        log_window = self.query_one("#log-window", RichLog)
+
+        def do_log():
+            log_window.write(
+                f"[{timestamp}] [{color}]{level.upper():>7}[/{color}] {message}"
+            )
+
+        if self._thread_id == threading.get_ident():
+            do_log()
+        else:
+            self.call_from_thread(do_log)
 
 
 def main():
