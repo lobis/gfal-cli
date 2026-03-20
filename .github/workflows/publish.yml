@@ -337,7 +337,7 @@ jobs:
             container: ubuntu:24.04
             install_cmd: |
               apt-get update && apt-get install -y curl
-              echo "deb [trusted=yes] https://lobis.github.io/gfal-cli/repo/deb/ stable main" | tee /etc/apt/sources.list.d/gfal-cli.list
+              echo "deb [trusted=yes] https://lobis.github.io/gfal-cli/deb/ stable main" | tee /etc/apt/sources.list.d/gfal-cli.list
               for i in {1..12}; do
                 echo "Attempt $i..."
                 if apt-get update && apt-get install -y python3-gfal-cli; then

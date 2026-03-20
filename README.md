@@ -25,7 +25,7 @@ sudo dnf install -y python3-gfal-cli
 
 Add the repository:
 ```bash
-echo "deb [trusted=yes] https://lobis.github.io/gfal-cli/repo/deb/ stable main" | sudo tee /etc/apt/sources.list.d/gfal-cli.list
+echo "deb [trusted=yes] https://lobis.github.io/gfal-cli/deb/ stable main" | sudo tee /etc/apt/sources.list.d/gfal-cli.list
 sudo apt-get update
 sudo apt-get install -y python3-gfal-cli
 ```
