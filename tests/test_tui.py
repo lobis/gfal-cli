@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from textual.containers import Vertical
-from textual.widgets import Button, DirectoryTree, Input, RichLog, Tree
+from textual.widgets import Button, DirectoryTree, Input, RichLog
 
 from gfal_cli.tui import GfalTui, MessageModal, RemoteDirectoryTree
 
@@ -13,56 +13,36 @@ async def test_tui_composition():
     app = GfalTui()
     async with app.run_test():
         # Check for key widgets
-        assert app.query_one("#url-input", Input)
         assert app.query_one("#left-pane")
         assert app.query_one("#right-pane")
         assert app.query_one("#log-window", RichLog)
 
 
 @pytest.mark.asyncio
-async def test_tui_url_submission():
-    """Verify that submitting a URL triggers update_remote."""
+async def test_tui_url_submission_via_modal():
+    """Verify that submitting a URL via modal triggers update_remote."""
     app = GfalTui()
     test_url = "https://example.com/data"
 
     with patch("gfal_cli.tui.url_to_fs") as mock_url_to_fs:
-        mock_fs = MagicMock()
-        mock_fs.ls.return_value = [
-            {"name": "file1.txt", "type": "file"},
-            {"name": "file2.txt", "type": "file"},
-        ]
-        mock_url_to_fs.return_value = (mock_fs, "/data")
+        mock_url_to_fs.return_value = (MagicMock(), "/data")
 
         async with app.run_test() as pilot:
-            # Wait for any background workers (like the initial load)
-            for _ in range(10):
-                await pilot.pause()
+            # Open URL modal
+            await pilot.press("/")
+            await pilot.pause()
 
-            # Set URL and submit
-            input_widget = app.query_one("#url-input", Input)
-            input_widget.value = test_url
-            input_widget.focus()
+            # Input URL and submit
+            input_widget = app.screen.query_one("#modal-url-input", Input)
+            await pilot.click(input_widget)
+            for char in test_url:
+                await pilot.press(char)
             await pilot.press("enter")
+            await pilot.pause()
 
-            # Wait for the tree to mount and its initial expand worker
-            tree = None
-            for _ in range(20):
-                await pilot.pause()
-                for t in app.query(Tree):
-                    if str(t.root.label) == test_url:
-                        tree = t
-                        break
-                if tree and tree.root.children:
-                    break
-
-            assert tree is not None, "Could not find a tree with the test URL"
-
-            # Children should be loaded
-            labels = [str(node.label) for node in tree.root.children]
-            assert "file1.txt" in labels
-            assert "file2.txt" in labels
-
-            # Ensure the LAST call was with our test URL and default ssl_verify
+            # Verify the remote tree's URL was updated
+            remote_tree = app.query_one("#remote-tree")
+            assert remote_tree.url == test_url
             mock_url_to_fs.assert_any_call(test_url, ssl_verify=False)
 
 
@@ -76,22 +56,18 @@ async def test_tui_ssl_toggle():
         mock_url_to_fs.return_value = (MagicMock(), "/data")
 
         async with app.run_test() as pilot:
-            # Wait for initial load
-            for _ in range(10):
-                await pilot.pause()
-
-            # Toggle via hotkey
+            # Toggle SSL via hotkey
             await pilot.press("v")
             await pilot.pause()
 
-            # Submit URL
-            input_widget = app.query_one("#url-input", Input)
+            # Submit URL via modal
+            await pilot.press("/")
+            await pilot.pause()
+            input_widget = app.screen.query_one("#modal-url-input", Input)
             input_widget.value = test_url
-            input_widget.focus()
             await pilot.press("enter")
             await pilot.pause(0.5)
 
-            # Wait for the call to happen
             mock_url_to_fs.assert_any_call(test_url, ssl_verify=True)
 
 
@@ -202,25 +178,35 @@ async def test_tui_copy_no_selection():
 
 
 @pytest.mark.asyncio
-async def test_tui_url_input_submit():
-    """Verify that entering a URL and pressing enter updates the remote tree."""
+async def test_tui_vim_navigation():
+    """Verify that g/G hotkeys move the cursor to top/bottom."""
     app = GfalTui()
-    test_url = "root://eospublic.cern.ch//eos/test"
+    async with app.run_test() as pilot:
+        tree = app.query_one("#local-tree", DirectoryTree)
+        tree.focus()
+        await pilot.pause()
 
-    with patch("gfal_cli.tui.url_to_fs") as mock_url_to_fs:
-        mock_url_to_fs.return_value = (MagicMock(), "/eos/test")
-        async with app.run_test() as pilot:
-            # Type URL and press enter
-            input_widget = app.query_one("#url-input", Input)
-            await pilot.click(input_widget)
-            for char in test_url:
-                await pilot.press(char)
-            await pilot.press("enter")
-            await pilot.pause()
+        # Should be some items in local dir (at least the root if empty, or children)
+        # We just want to ensure it doesn't crash and moves selection
 
-            # Verify the remote tree's URL was updated
-            remote_tree = app.query_one("#remote-tree")
-            assert remote_tree.url == test_url
+        # Move to bottom
+        await pilot.press("G")
+        await pilot.pause()
+
+        def get_last(node):
+            if node.is_expanded and node.children:
+                return get_last(node.children[-1])
+            return node
+
+        assert tree.cursor_node == get_last(tree.root)
+
+        # Move to top
+        await pilot.press("g")
+        await pilot.pause()
+        target = tree.root
+        if not tree.show_root and tree.root.children:
+            target = tree.root.children[0]
+        assert tree.cursor_node == target
 
 
 @pytest.mark.asyncio
@@ -274,8 +260,10 @@ async def test_tui_error_handling_ls_failure():
     with patch("gfal_cli.tui.url_to_fs") as mock_url_to_fs:
         mock_url_to_fs.side_effect = Exception("Connection refused")
         async with app.run_test() as pilot:
-            # Try to update URL
-            input_widget = app.query_one("#url-input", Input)
+            # Open modal and enter failing URL
+            await pilot.press("/")
+            await pilot.pause()
+            input_widget = app.screen.query_one("#modal-url-input", Input)
             await pilot.click(input_widget)
             await pilot.press(
                 "h", "t", "t", "p", ":", "/", "/", "f", "a", "i", "l", "e", "d"

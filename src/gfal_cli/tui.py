@@ -102,8 +102,7 @@ class GfalTui(App):
         width: auto;
     }
     #input-container {
-        height: auto;
-        dock: top;
+        display: none;
     }
     #log-window {
         height: 10;
@@ -111,13 +110,14 @@ class GfalTui(App):
         margin: 1 2;
     }
 
-    MessageModal {
+    /* Modal styles */
+    MessageModal, UrlInputModal {
         align: center middle;
         background: rgba(0, 0, 0, 0.5);
     }
 
     #modal-content {
-        width: 60;
+        width: 80;
         max-height: 80%;
         border: thick $primary;
         background: $surface;
@@ -151,17 +151,15 @@ class GfalTui(App):
         ("l", "toggle_log", "Toggle Log"),
         ("f5", "copy", "Copy"),
         ("x", "swap", "Swap Panes"),
+        ("/", "search", "Search"),
+        ("g", "cursor_top", "Top"),
+        ("G", "cursor_bottom", "Bottom"),
         ("v", "toggle_ssl", "SSL [OFF]"),
         ("t", "toggle_tpc", "TPC [ON]"),
     ]
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal(id="input-container"):
-            yield Input(
-                placeholder="Remote URL (e.g., root://... or https://...)",
-                id="url-input",
-            )
         with Horizontal():
             with Vertical(classes="pane", id="left-pane"):
                 yield Label("Source", classes="pane-label")
@@ -189,13 +187,33 @@ class GfalTui(App):
         with suppress(Exception):
             self.query_one(Footer).refresh()
 
-    @on(Input.Submitted, "#url-input")
-    async def handle_url(self, event: Input.Submitted):
-        url = event.value
-        if not url:
-            return
+    def action_search(self) -> None:
+        """Open a modal to search/input a new remote URL."""
+        self.push_screen(UrlInputModal())
 
-        await self.update_remote(url)
+    def action_cursor_top(self) -> None:
+        """Move cursor to the top of the focused tree."""
+        with suppress(Exception):
+            tree = self.query_one("Tree:focus")
+            target = tree.root
+            if not tree.show_root and tree.root.children:
+                target = tree.root.children[0]
+            tree.select_node(target)
+            tree.scroll_to_node(target)
+
+    def action_cursor_bottom(self) -> None:
+        """Move cursor to the bottom of the focused tree."""
+        with suppress(Exception):
+            tree = self.query_one("Tree:focus")
+
+            def get_last(node):
+                if node.is_expanded and node.children:
+                    return get_last(node.children[-1])
+                return node
+
+            last_node = get_last(tree.root)
+            tree.select_node(last_node)
+            tree.scroll_to_node(last_node)
 
     async def update_remote(self, url: str):
         self.log_activity(f"Updating remote to: {url} (verify={self.ssl_verify})")
@@ -228,8 +246,12 @@ class GfalTui(App):
         log_window = self.query_one("#log-window", RichLog)
 
         def do_log():
+            from rich.text import Text
+
             log_window.write(
-                f"[{timestamp}] [{color}]{level.upper():>7}[/{color}] {message}"
+                Text.from_markup(
+                    f"[{timestamp}] [{color}]{level.upper():>7}[/{color}] {message}"
+                )
             )
             # Persistence to file
             with suppress(Exception), Path(self.log_file).open("a") as f:
@@ -488,6 +510,39 @@ class MessageModal(ModalScreen):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "close-btn":
             self.action_close()
+
+
+class UrlInputModal(ModalScreen):
+    """A modal screen for inputting a new remote URL."""
+
+    BINDINGS = [("escape", "close", "Close")]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="modal-content"):
+            yield Static("[bold]Enter Remote URL[/bold]", classes="modal-title")
+            yield Input(
+                placeholder="root://... or https://...",
+                id="modal-url-input",
+            )
+            with Horizontal(id="modal-btn-row"):
+                yield Button("Cancel", id="cancel-btn")
+                yield Button("Load", variant="primary", id="load-btn")
+
+    def action_close(self) -> None:
+        self.app.pop_screen()
+
+    @on(Input.Submitted, "#modal-url-input")
+    def handle_submit(self):
+        url = self.query_one("#modal-url-input", Input).value
+        if url:
+            self.app.run_worker(self.app.update_remote(url))
+        self.action_close()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cancel-btn":
+            self.action_close()
+        elif event.button.id == "load-btn":
+            self.handle_submit()
 
 
 if __name__ == "__main__":
