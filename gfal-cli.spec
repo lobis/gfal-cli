@@ -1,12 +1,12 @@
-%define name gfal-cli
+%define base_name gfal-cli
 
-Name: python3-%{name}
+Name: python3-%{base_name}
 Version: %{version}
 Release: %{release}%{?dist}
 Summary: GFAL2-compatible CLI tools based on fsspec (HTTP/HTTPS and XRootD)
 License: MIT
 URL: https://github.com/lobis/gfal-cli
-Source0: %{name}-%{version}.tar.gz
+Source0: %{base_name}-%{version}.tar.gz
 
 BuildArch: noarch
 BuildRequires: python3-devel
@@ -24,7 +24,7 @@ A pip-installable Python rewrite of the gfal2-util CLI tools, built on fsspec.
 Supports HTTP/HTTPS and XRootD only (via fsspec-xrootd).
 
 %prep
-%autosetup -n %{name}-%{version}
+%autosetup -n %{base_name}-%{version}
 
 %build
 # Nothing to build for pure python
