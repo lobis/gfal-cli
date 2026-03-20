@@ -294,3 +294,88 @@ jobs:
       with:
         files: artifacts/**/*
         generate_release_notes: true
+
+  verify-deployment:
+    name: Verify Deployment 🔍 (${{ matrix.target.name }})
+    needs: [update-repo, publish-to-pypi, github-release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: AlmaLinux 9
+            container: almalinux:9
+            install_cmd: |
+              dnf install -y epel-release curl
+              curl -sL -o /etc/yum.repos.d/gfal-cli.repo https://lobis.github.io/gfal-cli/rpm/gfal-cli.repo
+              for i in {1..12}; do
+                echo "Attempt $i..."
+                dnf clean all
+                if dnf install -y python3-gfal-cli; then
+                  break
+                fi
+                sleep 10
+              done
+          - name: AlmaLinux 10
+            container: almalinux:10
+            install_cmd: |
+              dnf install -y epel-release curl
+              curl -sL -o /etc/yum.repos.d/gfal-cli.repo https://lobis.github.io/gfal-cli/rpm/gfal-cli.repo
+              for i in {1..12}; do
+                echo "Attempt $i..."
+                dnf clean all
+                if dnf install -y python3-gfal-cli; then
+                  break
+                fi
+                sleep 10
+              done
+          - name: Ubuntu 24.04
+            container: ubuntu:24.04
+            install_cmd: |
+              apt-get update && apt-get install -y curl
+              echo "deb [trusted=yes] https://lobis.github.io/gfal-cli/repo/deb/ stable main" | tee /etc/apt/sources.list.d/gfal-cli.list
+              for i in {1..12}; do
+                echo "Attempt $i..."
+                if apt-get update && apt-get install -y python3-gfal-cli; then
+                  break
+                fi
+                sleep 10
+              done
+          - name: PyPI
+            container: python:3.9
+            install_cmd: |
+              for i in {1..12}; do
+                echo "Attempt $i..."
+                if pip install --no-cache-dir gfal-cli; then
+                  break
+                fi
+                sleep 10
+              done
+
+    container: ${{ matrix.target.container }}
+
+    steps:
+    - name: Install and Verify
+      run: |
+        ${{ matrix.target.install_cmd }}
+
+        echo "✅ Verifying installation..."
+        # Command should be available
+        # On Linux OS packages, the binary is gfal-copy etc.
+        # Check if gfal-copy is in path
+        export PATH=$PATH:/usr/local/bin
+        command -v gfal-copy || exit 1
+
+        INSTALLED_VERSION=$(gfal-copy --version | awk '{print $NF}')
+        EXPECTED_VERSION=${{ github.ref_name }}
+        EXPECTED_VERSION=${EXPECTED_VERSION#v}
+
+        echo "Installed version: $INSTALLED_VERSION"
+        echo "Expected version: $EXPECTED_VERSION"
+
+        if [ "$INSTALLED_VERSION" != "$EXPECTED_VERSION" ]; then
+          echo "❌ Version mismatch!"
+          exit 1
+        fi
+        echo "✅ Version verification PASSED!"
