@@ -30,8 +30,8 @@ srpm: prepare
 	rpmbuild -bs $(RPMBUILD)/SPECS/$(SPECFILE) \
 		--nodeps \
 		--define "_topdir $(RPMBUILD)" \
-		--define "version $${VERSION}" \
-		--define "release $${RELEASE:-1}"
+		--define "pkg_version $${VERSION}" \
+		--define "pkg_release $${RELEASE:-1}"
 
 rpm: srpm
 	@FULL_VERSION=$$(python3 -m hatchling version); \
@@ -40,5 +40,5 @@ rpm: srpm
 	rpmbuild -bb $(RPMBUILD)/SPECS/$(SPECFILE) \
 		--nodeps \
 		--define "_topdir $(RPMBUILD)" \
-		--define "version $${VERSION}" \
-		--define "release $${RELEASE:-1}"
+		--define "pkg_version $${VERSION}" \
+		--define "pkg_release $${RELEASE:-1}"

@@ -53,9 +53,16 @@ jobs:
       uses: pypa/gh-action-pypi-publish@release/v1
 
   build-rpm:
-    name: Build RPM 📦
+    name: Build RPM 📦 (${{ matrix.os.name }})
     runs-on: ubuntu-latest
-    container: almalinux:9
+    strategy:
+      matrix:
+        os:
+          - image: almalinux:9
+            name: el9
+          - image: almalinux:10
+            name: el10
+    container: ${{ matrix.os.image }}
 
     steps:
     - name: Install git
@@ -77,13 +84,13 @@ jobs:
     - name: Store RPMs
       uses: actions/upload-artifact@v4
       with:
-        name: rpm-package-distributions
+        name: rpm-package-distributions-${{ matrix.os.name }}
         path: rpmbuild/RPMS/noarch/*.rpm
 
     - name: Store SRPMs
       uses: actions/upload-artifact@v4
       with:
-        name: srpm-package-distributions
+        name: srpm-package-distributions-${{ matrix.os.name }}
         path: rpmbuild/SRPMS/*.src.rpm
 
   build-deb:
