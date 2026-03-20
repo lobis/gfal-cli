@@ -1,6 +1,7 @@
 import threading
 from contextlib import suppress
 from pathlib import Path
+from typing import Any
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -76,6 +77,10 @@ class GfalTui(App):
     ssl_verify = reactive(False)
     tpc_enabled = reactive(True)
     log_file = reactive("/tmp/gfal-tui.log")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._thread_id = threading.get_ident()
 
     CSS = """
     Screen {
@@ -241,34 +246,52 @@ class GfalTui(App):
             "success": "bright_green",
             "error": "bright_red",
             "warning": "bright_yellow",
+            "command": "bold magenta",
         }
         color = colors.get(level, "white")
-        log_window = self.query_one("#log-window", RichLog)
 
         def do_log():
             from rich.text import Text
 
-            log_window.write(
-                Text.from_markup(
-                    f"[{timestamp}] [{color}]{level.upper():>7}[/{color}] {message}"
+            try:
+                log_window = self.query_one("#log-window", RichLog)
+                log_window.write(
+                    Text.from_markup(
+                        f"[{timestamp}] [{color}]{level.upper():>7}[/{color}] {message}"
+                    )
                 )
-            )
-            # Persistence to file
-            with suppress(Exception), Path(self.log_file).open("a") as f:
-                f.write(f"[{timestamp}] [{level.upper():>7}] {message}\n")
+            except Exception:
+                pass
 
-        if self._thread_id == threading.get_ident():
+        # Persistence to file
+        with suppress(Exception), Path(self.log_file).open("a") as f:
+            f.write(f"[{timestamp}] [{level.upper():>7}] {message}\n")
+
+        if threading.get_ident() == self._thread_id:
             do_log()
         else:
             self.call_from_thread(do_log)
 
+    def _get_node_path(self, node: Any) -> str:
+        """Extract the string path/URL from a tree node."""
+        if not node or not hasattr(node, "data"):
+            return ""
+        if node.data is None:
+            return ""
+        # Local DirectoryTree DirEntry
+        if hasattr(node.data, "path"):
+            return str(node.data.path)
+        # Remote SURL string
+        return str(node.data)
+
     def action_stat(self) -> None:
         """Fetch and log information for the selected node."""
         node = self.query_one("Tree:focus").cursor_node
-        if not node or not node.data:
+        path = self._get_node_path(node)
+        if not path:
             return
 
-        path = node.data
+        self.log_activity(f"gfal-stat {path}", level="command")
         self.log_activity(f"Fetching stat for: {path}")
 
         def get_stat():
@@ -293,10 +316,11 @@ class GfalTui(App):
     def action_checksum(self) -> None:
         """Calculate and log checksum for the selected node."""
         node = self.query_one("Tree:focus").cursor_node
-        if not node or not node.data:
+        path = self._get_node_path(node)
+        if not path:
             return
 
-        path = node.data
+        self.log_activity(f"gfal-sum {path} ADLER32", level="command")
         self.log_activity(f"Calculating checksum for: {path}")
 
         def get_checksum():
@@ -337,10 +361,12 @@ class GfalTui(App):
             return
 
         # Only refresh if it's a directory (remote tree handles expansion)
+        path = self._get_node_path(node)
         if isinstance(tree, RemoteDirectoryTree):
+            self.log_activity(f"gfal-ls {path}", level="command")
             node.remove_children()
             tree.run_worker(lambda: tree.load_directory(node), thread=True)
-            self.log_activity(f"Refreshed remote: {node.data}")
+            self.log_activity(f"Refreshed remote: {path}")
         else:
             # Local DirectoryTree doesn't expose easy child refresh, just reload the whole tree or wait for filesystem events
             # For now, we just log info for local
@@ -412,18 +438,21 @@ class GfalTui(App):
             return
 
         is_src_local = isinstance(src_tree, DirectoryTree)
+        src_path = self._get_node_path(node)
+        if not src_path:
+            return
 
         if is_src_local:
             # Source is Local, Destination is Remote
-            src_path = str(node.data.path)
             dest_dir = dest_tree.url
+            self.log_activity(f"gfal-copy {src_path} {dest_dir}", level="command")
             self.run_worker(
                 self._do_copy(src_path, dest_dir, to_remote=True), thread=True
             )
         else:
             # Source is Remote, Destination is Local
-            src_path = node.data
             dest_dir = str(dest_tree.path)
+            self.log_activity(f"gfal-copy {src_path} {dest_dir}", level="command")
             self.run_worker(
                 self._do_copy(src_path, dest_dir, to_remote=False), thread=True
             )
@@ -535,6 +564,7 @@ class UrlInputModal(ModalScreen):
     def handle_submit(self):
         url = self.query_one("#modal-url-input", Input).value
         if url:
+            self.app.log_activity(f"gfal-ls {url}", level="command")
             self.app.run_worker(self.app.update_remote(url))
         self.action_close()
 

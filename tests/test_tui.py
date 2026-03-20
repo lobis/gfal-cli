@@ -399,7 +399,8 @@ async def test_tui_log_persistence(tmp_path):
     app.log_file = str(log_file)
     async with app.run_test() as pilot:
         app.log_activity("Test log message")
-        await pilot.pause()
+        # Explicitly flush or wait
+        await pilot.pause(0.5)
 
         assert log_file.exists()
         content = log_file.read_text()
@@ -443,3 +444,63 @@ async def test_tui_toggle_label_update():
         await pilot.press("v")
         await pilot.pause()
         assert get_desc("v") == "SSL [OFF]"
+
+
+@pytest.mark.asyncio
+async def test_tui_local_stat_command_logging(tmp_path):
+    """Verify that local stat triggers command logging to file."""
+    log_file = tmp_path / "stat.log"
+    app = GfalTui()
+    app.log_file = str(log_file)
+    async with app.run_test() as pilot:
+        # Focus local tree
+        tree = app.query_one("#local-tree", DirectoryTree)
+        tree.focus()
+        await pilot.pause()
+
+        with patch("gfal_cli.tui.url_to_fs") as mock_url_to_fs:
+            mock_fs = MagicMock()
+            mock_fs.info.return_value = {"size": 100}
+            mock_url_to_fs.return_value = (mock_fs, "/")
+
+            await pilot.press("s")
+            # Wait for modal and log write
+            for _ in range(20):
+                if isinstance(app.screen, MessageModal):
+                    break
+                await pilot.pause(0.1)
+            await pilot.pause(0.2)
+
+            assert log_file.exists()
+            content = log_file.read_text()
+            assert "gfal-stat" in content
+
+
+@pytest.mark.asyncio
+async def test_tui_local_checksum_command_logging(tmp_path):
+    """Verify that local checksum triggers command logging to file."""
+    log_file = tmp_path / "sum.log"
+    app = GfalTui()
+    app.log_file = str(log_file)
+    async with app.run_test() as pilot:
+        # Focus local tree
+        tree = app.query_one("#local-tree", DirectoryTree)
+        tree.focus()
+        await pilot.pause()
+
+        with patch("gfal_cli.tui.url_to_fs") as mock_url_to_fs:
+            mock_fs = MagicMock()
+            mock_fs.checksum.return_value = "ABCDEF"
+            mock_url_to_fs.return_value = (mock_fs, "/")
+
+            await pilot.press("c")
+            # Wait for modal and log write
+            for _ in range(20):
+                if isinstance(app.screen, MessageModal):
+                    break
+                await pilot.pause(0.1)
+            await pilot.pause(0.2)
+
+            assert log_file.exists()
+            content = log_file.read_text()
+            assert "gfal-sum" in content
