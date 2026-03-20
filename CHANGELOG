@@ -1,0 +1,2 @@
+* Fri Mar 20 2026 Luis Antonio Obis Aparicio <luis.obis@cern.ch> - %{version}-%{release}
+- Initial package building with hatchling and pip

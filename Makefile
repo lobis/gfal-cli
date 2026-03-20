@@ -21,7 +21,7 @@ prepare: dist
 	@VERSION=$$(python3 -m hatchling version | sed 's/\+.*//'); \
 	mkdir -p $(RPMBUILD)/BUILD $(RPMBUILD)/RPMS $(RPMBUILD)/SOURCES $(RPMBUILD)/SPECS $(RPMBUILD)/SRPMS; \
 	cp $(DIST_DIR)/$(NAME_DIST)-$${VERSION}-py3-none-any.whl $(RPMBUILD)/SOURCES/; \
-	cp $(SPECFILE) $(RPMBUILD)/SPECS/
+	cp $(SPECFILE) CHANGELOG $(RPMBUILD)/SPECS/
 
 srpm: prepare
 	@FULL_VERSION=$$(python3 -m hatchling version); \

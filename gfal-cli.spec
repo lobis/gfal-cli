@@ -42,6 +42,4 @@ mkdir -p %{buildroot}%{python3_sitelib}
 %{_bindir}/gfal*
 %{python3_sitelib}/gfal_cli*
 
-%changelog
-* Fri Mar 20 2026 Luis Antonio Obis Aparicio <luis.obis@cern.ch> - %{version}-%{release}
-- Initial package building with hatchling and pip
+%changelog -f CHANGELOG
