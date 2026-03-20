@@ -177,10 +177,19 @@ class GfalTui(App):
         else:
             self.call_from_thread(do_log)
 
+    def on_unmount(self) -> None:
+        """Cancel all workers on exit."""
+        self.workers.cancel_all()
+
 
 def main():
+    import sys
+
     app = GfalTui()
-    app.run()
+    try:
+        app.run()
+    except KeyboardInterrupt:
+        sys.exit(0)
 
 
 if __name__ == "__main__":
