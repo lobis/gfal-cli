@@ -114,22 +114,37 @@ jobs:
         sudo gem install fpm
         python -m pip install build hatchling hatch-vcs
 
-    - name: Build sdist
-      run: python -m build --sdist
+    - name: Build distributions
+      run: python -m build
 
     - name: Build DEB
       run: |
         VERSION=$(python3 -m hatchling version | sed 's/\+.*//')
-        fpm -s python -t deb \
+
+        # 1. Create a fake root filesystem targeting Debian's expected paths
+        mkdir -p buildroot/usr/lib/python3/dist-packages
+        mkdir -p buildroot/usr/bin
+
+        # 2. Bundle fsspec-xrootd and your app directly into dist-packages
+        python3 -m pip install fsspec-xrootd --no-deps --ignore-installed --target buildroot/usr/lib/python3/dist-packages
+        python3 -m pip install dist/gfal_cli-*.whl --no-deps --ignore-installed --target buildroot/usr/lib/python3/dist-packages
+
+        # 3. Move the CLI scripts to /usr/bin where they belong
+        mv buildroot/usr/lib/python3/dist-packages/bin/* buildroot/usr/bin/
+        rm -rf buildroot/usr/lib/python3/dist-packages/bin
+
+        # 4. Package the raw directory using fpm
+        fpm -s dir -t deb \
           --name python3-gfal-cli \
           --version "$VERSION" \
-          --python-bin python3 \
-          --python-package-name-prefix python3 \
+          --architecture all \
           --depends "python3-fsspec" \
-          --depends "python3-fsspec-xrootd" \
+          --depends "python3-xrootd" \
           --depends "python3-aiohttp" \
           --depends "python3-requests" \
-          dist/gfal_cli-*.tar.gz
+          --description "GFAL2-compatible CLI tools based on fsspec" \
+          -C buildroot \
+          usr/
 
     - name: Store DEBs
       uses: actions/upload-artifact@v4
