@@ -58,13 +58,16 @@ jobs:
     container: almalinux:9
 
     steps:
+    - name: Install git
+      run: dnf install -y git
+
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
     - name: Install dependencies
       run: |
-        dnf install -y rpm-build make python3-devel python3-pip git
+        dnf install -y rpm-build make python3-devel python3-pip
         git config --global --add safe.directory '*'
         python3 -m pip install build hatchling hatch-vcs
 
