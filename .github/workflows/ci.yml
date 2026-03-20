@@ -179,7 +179,7 @@ jobs:
                    python3 -m pip install build hatchling hatch-vcs && \
                    VERSION=\$(python3 -m hatchling version | sed 's/\+.*//') && \
                    python3 -m build --no-isolation && \
-                   mkdir -p pkg/DEBIAN pkg/usr/bin pkg/opt/gfal-cli && \
+                   mkdir -p pkg/DEBIAN pkg/usr/bin pkg/usr/lib/python3/dist-packages && \
                    cat <<EOF > pkg/DEBIAN/control
         Package: python3-gfal-cli
         Version: \$VERSION
@@ -190,9 +190,9 @@ jobs:
         Depends: python3, python3-fsspec, python3-xrootd, python3-aiohttp, python3-requests
         Description: GFAL2-compatible CLI tools based on fsspec
         EOF
-                   python3 -m pip install fsspec-xrootd dist/gfal_cli-*.whl --no-deps --ignore-installed --target pkg/opt/gfal-cli && \
-                   mv pkg/opt/gfal-cli/bin/* pkg/usr/bin/ && \
-                   rm -rf pkg/opt/gfal-cli/bin && \
+                   python3 -m pip install fsspec-xrootd dist/gfal_cli-*.whl --no-deps --ignore-installed --target pkg/usr/lib/python3/dist-packages && \
+                   mv pkg/usr/lib/python3/dist-packages/bin/* pkg/usr/bin/ && \
+                   rm -rf pkg/usr/lib/python3/dist-packages/bin && \
                    sed -i '1s|^.*$|#!/usr/bin/python3|' pkg/usr/bin/gfal* && \
                    dpkg-deb --build pkg python3-gfal-cli-\$VERSION-${{ matrix.arch }}.deb"
     - name: Store DEBs
