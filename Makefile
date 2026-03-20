@@ -28,6 +28,7 @@ srpm: prepare
 	VERSION=$$(echo $${FULL_VERSION} | sed 's/\+.*//'); \
 	RELEASE=$$(echo $${FULL_VERSION} | grep -o '+.*' | sed 's/+/./'); \
 	rpmbuild -bs $(RPMBUILD)/SPECS/$(SPECFILE) \
+		--nodeps \
 		--define "_topdir $(RPMBUILD)" \
 		--define "version $${VERSION}" \
 		--define "release $${RELEASE:-1}"
@@ -37,6 +38,7 @@ rpm: srpm
 	VERSION=$$(echo $${FULL_VERSION} | sed 's/\+.*//'); \
 	RELEASE=$$(echo $${FULL_VERSION} | grep -o '+.*' | sed 's/+/./'); \
 	rpmbuild -bb $(RPMBUILD)/SPECS/$(SPECFILE) \
+		--nodeps \
 		--define "_topdir $(RPMBUILD)" \
 		--define "version $${VERSION}" \
 		--define "release $${RELEASE:-1}"
