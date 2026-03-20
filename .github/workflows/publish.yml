@@ -32,26 +32,6 @@ jobs:
         name: python-package-distributions
         path: dist/
 
-  publish-to-pypi:
-    name: Publish to PyPI 🚀
-    needs: [build, build-rpm, build-deb]
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/gfal-cli
-    permissions:
-      id-token: write
-
-    steps:
-    - name: Download distributions
-      uses: actions/download-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
-
-    - name: Publish package distributions to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-
   build-rpm:
     name: Build RPM 📦 (${{ matrix.os.name }})
     runs-on: ubuntu-latest
@@ -152,9 +132,67 @@ jobs:
         name: deb-package-distributions
         path: "*.deb"
 
+  test-install:
+    name: Test Install 🧪 (${{ matrix.target.name }})
+    needs: [build-rpm, build-deb]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - name: AlmaLinux 9
+            container: almalinux:9
+            artifact: rpm-package-distributions-el9
+            install_cmd: dnf install -y epel-release && dnf install -y ./*.rpm
+          - name: AlmaLinux 10
+            container: almalinux:10
+            artifact: rpm-package-distributions-el10
+            install_cmd: dnf install -y epel-release && dnf install -y ./*.rpm
+          - name: Ubuntu 24.04
+            container: ubuntu:24.04
+            artifact: deb-package-distributions
+            install_cmd: apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y ./*.deb
+
+    container: ${{ matrix.target.container }}
+
+    steps:
+    - name: Download package
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ matrix.target.artifact }}
+
+    - name: Install package
+      run: ${{ matrix.target.install_cmd }}
+
+    - name: Verify executables exist and run
+      run: |
+        echo "✅ Verifying installation..."
+        which gfal-copy
+        gfal-copy --help
+
+  publish-to-pypi:
+    name: Publish to PyPI 🚀
+    needs: [build, build-rpm, build-deb, test-install]
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/gfal-cli
+    permissions:
+      id-token: write
+
+    steps:
+    - name: Download distributions
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+
+    - name: Publish package distributions to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+
   github-release:
     name: Create GitHub Release 🚀
-    needs: [build, build-rpm, build-deb]
+    needs: [build, build-rpm, build-deb, test-install]
     runs-on: ubuntu-latest
     permissions:
       contents: write
