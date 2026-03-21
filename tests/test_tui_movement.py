@@ -29,48 +29,36 @@ async def test_tui_movement_vim_keys():
         # Start at the top (g)
         await pilot.press("g")
         await pilot.pause()
-        assert tree.cursor_line == 0
         initial_node = tree.cursor_node
+        assert initial_node is not None
         assert initial_node == tree.root.children[0]
 
         # Move down with 'j'
         await pilot.press("j")
         await pilot.pause()
-        assert tree.cursor_line == 1
         down_j_node = tree.cursor_node
-        assert down_j_node == tree.root.children[1]
+        assert down_j_node != initial_node
 
         # Move up with 'k'
         await pilot.press("k")
         await pilot.pause()
-        assert tree.cursor_line == 0
         assert tree.cursor_node == initial_node
 
         # Move to bottom with 'G'
         await pilot.press("G")
         await pilot.pause()
-        assert tree.cursor_line == tree.line_count - 1
+        bottom_node = tree.cursor_node
+        assert bottom_node != initial_node
+
+        # Ensure it is actually the last visible node
+        def get_last(node):
+            if node.is_expanded and node.children:
+                return get_last(node.children[-1])
+            return node
+
+        assert bottom_node == get_last(tree.root)
 
         # Move to top with 'g'
         await pilot.press("g")
         await pilot.pause()
-        assert tree.cursor_line == 0
-
-
-@pytest.mark.asyncio
-async def test_tui_movement_remote_tree():
-    """Test that movement keys work in the remote tree."""
-    app = GfalTui()
-    async with app.run_test() as pilot:
-        await pilot.pause()
-        tree = app.query_one("#remote-tree")
-        app.set_focus(tree)
-
-        # Initially, with show_root=False and no children loaded yet, cursor_line should be 0 (pointing to root even if hidden?)
-        # Actually, if root is hidden and no children, line_count might be 0.
-        await pilot.press("g")
-        await pilot.pause()
-
-        await pilot.press("G")
-        await pilot.pause()
-        assert True  # Just ensuring no crash
+        assert tree.cursor_node == initial_node

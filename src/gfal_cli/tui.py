@@ -270,9 +270,9 @@ class GfalTui(App):
             self.action_focus_right()
 
     def action_yank(self) -> None:
-        """Yank the currently selected file/directory."""
+        """Yank the current URL (toggle)."""
         tree = self._get_focused_tree()
-        if not tree or not tree.cursor_node:
+        if not tree or not tree.cursor_node or not tree.cursor_node.data:
             return
 
         node = tree.cursor_node
@@ -281,14 +281,19 @@ class GfalTui(App):
             if isinstance(tree, HighlightableRemoteDirectoryTree)
             else str(node.data.path)
         )
-        self.yanked_url = url
-        self.log_activity(f"Yanked: {url}", level="success")
+
+        if self.yanked_url == url:
+            self.yanked_url = None
+            self.log_activity(f"Un-yanked: {url}")
+        else:
+            self.yanked_url = url
+            self.log_activity(f"Yanked: {url}", level="success")
 
         # Update trees to show highlights
         for tree_widget in self.query(
             "HighlightableDirectoryTree, HighlightableRemoteDirectoryTree"
         ):
-            tree_widget.yanked_url = url
+            tree_widget.yanked_url = self.yanked_url
             tree_widget.refresh()
 
     def action_paste(self) -> None:
@@ -355,24 +360,43 @@ class GfalTui(App):
     def action_cursor_up(self) -> None:
         """Move cursor up in the focused tree."""
         with suppress(Exception):
-            self.query_one("Tree:focus").action_cursor_up()
+            tree = self._get_focused_tree()
+            if tree:
+                tree.action_cursor_up()
 
     def action_cursor_down(self) -> None:
         """Move cursor down in the focused tree."""
         with suppress(Exception):
-            self.query_one("Tree:focus").action_cursor_down()
+            tree = self._get_focused_tree()
+            if tree:
+                tree.action_cursor_down()
 
     def action_cursor_top(self) -> None:
         """Move cursor to the top of the focused tree."""
         with suppress(Exception):
-            tree = self.query_one("Tree:focus")
-            tree.cursor_line = 0
+            tree = self._get_focused_tree()
+            if tree:
+                tree.action_scroll_home()
+                # If show_root=False, the first visible node is either root (if shown)
+                # or the first child. cursor_line=0 always selects the first visible line.
+                tree.cursor_line = 0
 
     def action_cursor_bottom(self) -> None:
         """Move cursor to the bottom of the focused tree."""
         with suppress(Exception):
-            tree = self.query_one("Tree:focus")
-            tree.cursor_line = tree.line_count - 1
+            tree = self._get_focused_tree()
+            if tree:
+                tree.action_scroll_end()
+
+                # Recursively find the last visible node
+                def get_last(node):
+                    if node.is_expanded and node.children:
+                        return get_last(node.children[-1])
+                    return node
+
+                last_node = get_last(tree.root)
+                tree.select_node(last_node)
+                tree.scroll_to_node(last_node)
 
     async def update_remote(self, url: str):
         self.log_activity(f"Updating remote to: {url} (verify={self.ssl_verify})")
