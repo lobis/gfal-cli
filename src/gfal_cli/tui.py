@@ -224,13 +224,13 @@ class GfalTui(App):
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal():
-            with Vertical(classes="pane", id="local-pane"):
+            with Vertical(classes="pane", id="left-pane"):
                 yield Label("Source (Local)", classes="pane-header")
                 tree = HighlightableDirectoryTree("./", id="local-tree")
                 tree.show_root = False
                 tree.yanked_urls = self.yanked_urls
                 yield tree
-            with Vertical(classes="pane", id="remote-pane"):
+            with Vertical(classes="pane", id="right-pane"):
                 yield Label("Destination (Remote)", classes="pane-header")
                 tree = HighlightableRemoteDirectoryTree(
                     "https://eospublic.cern.ch:8444/eos/opendata/cms/",
@@ -361,12 +361,14 @@ class GfalTui(App):
         self.exit()
 
     def action_focus_left(self) -> None:
-        """Focus the left pane (local tree)."""
-        self.query_one("#local-tree").focus()
+        """Focus the left pane."""
+        with suppress(Exception):
+            self.query_one("#left-pane").query_one(Tree).focus()
 
     def action_focus_right(self) -> None:
-        """Focus the right pane (remote tree)."""
-        self.query_one("#remote-tree").focus()
+        """Focus the right pane."""
+        with suppress(Exception):
+            self.query_one("#right-pane").query_one(Tree).focus()
 
     def action_cursor_up(self) -> None:
         """Move cursor up in the focused tree."""
@@ -522,24 +524,19 @@ class GfalTui(App):
 
     def _get_focused_tree(self) -> Tree | None:
         """Helper to get the currently focused tree widget."""
-        # Try to find which pane is focused, then get its tree
         focused = self.focused
         if not focused:
-            # Default to left pane
-            return self.query_one("#local-tree", Tree)
+            return self.query_one("#left-pane").query_one(Tree)
 
-        # If we focused the tree directly
         if isinstance(focused, Tree):
             return focused
 
-        # If we focused a pane container
         if focused.id == "left-pane":
-            return self.query_one("#local-tree", Tree)
+            return self.query_one("#left-pane").query_one(Tree)
         if focused.id == "right-pane":
-            return self.query_one("#remote-tree", Tree)
+            return self.query_one("#right-pane").query_one(Tree)
 
-        # Fallback
-        return self.query_one("#local-tree", Tree)
+        return self.query_one("#left-pane").query_one(Tree)
 
     def action_checksum(self) -> None:
         """Calculate and log checksum for the selected node."""
@@ -643,25 +640,26 @@ class GfalTui(App):
         left_pane = self.query_one("#left-pane", Vertical)
         right_pane = self.query_one("#right-pane", Vertical)
 
-        left_tree = left_pane.children[1]
-        right_tree = right_pane.children[1]
+        left_tree = left_pane.query_one(Tree)
+        right_tree = right_pane.query_one(Tree)
 
-        # Explicitly await removal and mounting to ensure DOM is stable for tests
+        # Explicitly await removal and mounting to ensure DOM is stable
         await left_tree.remove()
         await right_tree.remove()
 
         await left_pane.mount(right_tree)
         await right_pane.mount(left_tree)
 
-        self.log_activity("Panes swapped: Source and Destination content exchanged")
+        self.log_activity("Panes swapped: left and right trees exchanged")
 
     def action_copy(self) -> None:
         """Copy the selected file from Source (Left) to Destination (Right)."""
-        left_pane = self.query_one("#left-pane", Vertical)
-        right_pane = self.query_one("#right-pane", Vertical)
+        with suppress(Exception):
+            left_pane = self.query_one("#left-pane", Vertical)
+            right_pane = self.query_one("#right-pane", Vertical)
 
-        src_tree = left_pane.children[1]
-        dest_tree = right_pane.children[1]
+            src_tree = left_pane.query_one(Tree)
+            dest_tree = right_pane.query_one(Tree)
 
         # Get the focused node from the Source pane
         node = src_tree.cursor_node
