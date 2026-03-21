@@ -5,6 +5,7 @@ import threading
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from rich.style import Style
 from rich.text import Text
@@ -38,7 +39,7 @@ from gfal_cli.utils import (
 class HighlightableRemoteDirectoryTree(Tree):
     """A lazy-loading tree for remote filesystems with yank highlight support."""
 
-    yanked_url: reactive[str | None] = reactive(None)
+    yanked_urls: reactive[set[str]] = reactive(set())
 
     def __init__(self, url: str, ssl_verify: bool = False, **kwargs):
         self.url = url
@@ -49,7 +50,7 @@ class HighlightableRemoteDirectoryTree(Tree):
         self, node: TreeNode[Any], base_style: Style, control_style: Style
     ) -> Any:
         label = super().render_label(node, base_style, control_style)
-        if self.yanked_url and node.data == self.yanked_url:
+        if node.data in self.yanked_urls:
             if isinstance(label, Text):
                 label.append(" [YANKED]", style="bold yellow")
             else:
@@ -98,7 +99,7 @@ class HighlightableRemoteDirectoryTree(Tree):
 class HighlightableDirectoryTree(DirectoryTree):
     """A DirectoryTree that supports yank highlight."""
 
-    yanked_url: reactive[str | None] = reactive(None)
+    yanked_urls: reactive[set[str]] = reactive(set())
 
     def render_label(
         self, node: TreeNode[Any], base_style: Style, control_style: Style
@@ -106,10 +107,9 @@ class HighlightableDirectoryTree(DirectoryTree):
         label = super().render_label(node, base_style, control_style)
         # DirectoryTree data is DirEntry (has .path)
         if (
-            self.yanked_url
-            and node.data
+            node.data
             and hasattr(node.data, "path")
-            and str(node.data.path) == self.yanked_url
+            and str(node.data.path) in self.yanked_urls
         ):
             if isinstance(label, Text):
                 label.append(" [YANKED]", style="bold yellow")
@@ -125,7 +125,7 @@ class GfalTui(App):
 
     ssl_verify = reactive(False)
     tpc_enabled = reactive(True)
-    yanked_url = reactive(None)
+    yanked_urls = reactive(set())
     log_file = reactive(str(Path(tempfile.gettempdir()) / "gfal-tui.log"))
 
     def __init__(self, log_file: str | None = None, *args, **kwargs):
@@ -228,7 +228,7 @@ class GfalTui(App):
                 yield Label("Source (Local)", classes="pane-header")
                 tree = HighlightableDirectoryTree("./", id="local-tree")
                 tree.show_root = False
-                tree.yanked_url = self.yanked_url
+                tree.yanked_urls = self.yanked_urls
                 yield tree
             with Vertical(classes="pane", id="remote-pane"):
                 yield Label("Destination (Remote)", classes="pane-header")
@@ -238,7 +238,7 @@ class GfalTui(App):
                     ssl_verify=self.ssl_verify,
                 )
                 tree.show_root = False
-                tree.yanked_url = self.yanked_url
+                tree.yanked_urls = self.yanked_urls
                 yield tree
         yield RichLog(id="log-window", auto_scroll=True, max_lines=1000)
         yield Footer()
@@ -282,72 +282,83 @@ class GfalTui(App):
             else str(node.data.path)
         )
 
-        if self.yanked_url == url:
-            self.yanked_url = None
+        # Toggle in the set
+        new_yanked = set(self.yanked_urls)
+        if url in new_yanked:
+            new_yanked.remove(url)
             self.log_activity(f"Un-yanked: {url}")
         else:
-            self.yanked_url = url
+            new_yanked.add(url)
             self.log_activity(f"Yanked: {url}", level="success")
+
+        self.yanked_urls = new_yanked
 
         # Update trees to show highlights
         for tree_widget in self.query(
             "HighlightableDirectoryTree, HighlightableRemoteDirectoryTree"
         ):
-            tree_widget.yanked_url = self.yanked_url
+            tree_widget.yanked_urls = self.yanked_urls
             tree_widget.refresh()
 
     def action_paste(self) -> None:
-        """Paste the yanked file/directory to the currently selected directory."""
-        if not self.yanked_url:
-            self.notify(
-                "Nothing yanked! Press 'y' to yank an item first.", severity="warning"
-            )
+        """Paste the yanked files/directories to the currently selected directory."""
+        if not self.yanked_urls:
+            self.notify("Nothing to paste!", severity="warning")
             return
 
         tree = self._get_focused_tree()
         if not tree or not tree.cursor_node:
             return
 
-        node = tree.cursor_node
-        # For RemoteDirectoryTree, data is the full URL.
-        # For DirectoryTree, data is DirEntry (has .path and .is_dir).
-        target_is_dir = False
-        target_path = ""
+        # Target must be a directory
+        target_node = tree.cursor_node
+        is_remote = isinstance(tree, HighlightableRemoteDirectoryTree)
 
-        if isinstance(tree, HighlightableRemoteDirectoryTree):
-            target_path = node.data
-            # We assume highlighted remote nodes that allow expand are directories
-            target_is_dir = node.allow_expand
+        if is_remote:
+            # For remote tree, we need to know if it's a directory
+            # We assume it is if we are focusing it for paste, or we have better info
+            target_path = target_node.data
         else:
-            target_path = str(node.data.path)
-            target_is_dir = node.data.is_dir
+            if not target_node.data.is_dir:
+                self.notify("Target must be a directory!", severity="warning")
+                return
+            target_path = str(target_node.data.path)
 
-        if not target_is_dir:
-            self.notify("Can only paste into directories!", severity="error")
-            return
-
-        def handle_paste(dest_name: str) -> None:
-            if not dest_name:
+        def handle_paste(confirm_data: dict | None):
+            if not confirm_data:
                 return
 
-            # Construct final destination URL
-            # Use a local variable to avoid UnboundLocalError with the closure
-            tp = target_path
-            if "://" in tp:
-                if not tp.endswith("/"):
-                    tp += "/"
-                dst_url = tp + dest_name
-            else:
-                dst_url = str(Path(tp) / dest_name)
+            dest_dir = confirm_data.get("path")
+            custom_name = confirm_data.get("name")
+            self.log_activity(f"Pasting {len(self.yanked_urls)} items to {dest_dir}")
 
-            self.log_activity(f"Pasting {self.yanked_url} to {dst_url}")
-            self.run_worker(
-                lambda: self._do_copy(self.yanked_url, dst_url),
-                thread=True,
-                name="paste_worker",
-            )
+            for src_url in self.yanked_urls:
+                name = Path(urlparse(src_url).path).name
+                if not name:
+                    name = Path(src_url).name
 
-        self.push_screen(PasteModal(self.yanked_url, target_path), handle_paste)
+                # If single file and custom name provided, use it
+                if custom_name and len(self.yanked_urls) == 1:
+                    dst_url = str(Path(dest_dir) / custom_name)
+                else:
+                    dst_url = str(Path(dest_dir) / name)
+
+                self.run_worker(
+                    lambda s=src_url, d=dst_url: self._do_copy(s, d),
+                    thread=True,
+                    name=f"paste_worker_{name}",
+                )
+
+        # Use PasteModal (will need update for multiple)
+        # For multi-paste, we just confirm the target directory
+        self.push_screen(PasteModal(self.yanked_urls, target_path), handle_paste)
+
+    def action_quit(self) -> None:
+        """Exit the application cleanly."""
+        self.log_activity("Shutting down workers...")
+        for worker in self.workers:
+            worker.cancel()
+        self.exit()
 
     def action_focus_left(self) -> None:
         """Focus the left pane (local tree)."""
@@ -799,40 +810,60 @@ class MessageModal(ModalScreen):
             self.action_close()
 
 
-class PasteModal(ModalScreen[str]):
-    """A modal to confirm the destination name for a paste operation."""
+class PasteModal(ModalScreen[dict | None]):
+    """A modal to confirm the destination for a paste operation."""
 
     BINDINGS = [("escape", "cancel", "Cancel")]
 
-    def __init__(self, src_url: str, dst_dir: str):
+    def __init__(self, src_urls: set[str], dst_dir: str):
         super().__init__()
-        self.src_url = src_url
+        self.src_urls = src_urls
         self.dst_dir = dst_dir
-        self.suggested_name = Path(src_url).name
+        self.multi = len(src_urls) > 1
+        if not self.multi:
+            src_url = list(src_urls)[0]
+            # Use urlparse to get the last path component
+            path_part = urlparse(src_url).path
+            self.suggested_name = Path(path_part).name or Path(src_url).name
+        else:
+            self.suggested_name = ""
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-content"):
             yield Static("[bold]Paste[/bold]", classes="modal-title")
-            yield Label(f"Source: '{self.src_url}'")
+            if self.multi:
+                yield Label(f"Pasting {len(self.src_urls)} items")
+            else:
+                yield Label(f"Source: '{list(self.src_urls)[0]}'")
+
             yield Label(f"Destination Directory: '{self.dst_dir}'")
-            yield Label("Destination Name:")
-            yield Input(value=self.suggested_name, id="dest-name-input")
+
+            if not self.multi:
+                yield Label("Destination Name:")
+                yield Input(value=self.suggested_name, id="dest-name-input")
+
             with Horizontal(id="modal-btn-row"):
                 yield Button("Cancel", id="cancel-btn")
                 yield Button("Paste", variant="primary", id="paste-btn")
 
     def action_cancel(self) -> None:
         """Dismiss the modal without performing any action."""
-        self.dismiss("")
+        self.dismiss(None)
 
     @on(Button.Pressed, "#paste-btn")
-    @on(Input.Submitted, "#dest-name-input")
     def on_paste(self) -> None:
-        name = self.query_one("#dest-name-input", Input).value
-        if not name:
-            self.app.notify("Destination name cannot be empty", severity="error")
-            return
-        self.dismiss(name)
+        if self.multi:
+            self.dismiss({"path": self.dst_dir})
+        else:
+            name = self.query_one("#dest-name-input", Input).value
+            if not name:
+                self.app.notify("Destination name cannot be empty", severity="error")
+                return
+            self.dismiss({"path": self.dst_dir, "name": name})
+
+    @on(Input.Submitted, "#dest-name-input")
+    def on_submit(self) -> None:
+        self.on_paste()
 
     @on(Button.Pressed, "#cancel-btn")
     def on_cancel(self) -> None:
