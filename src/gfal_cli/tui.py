@@ -27,6 +27,7 @@ from textual.widgets import (
 )
 from textual.widgets._tree import TreeNode
 
+from gfal_cli.base import CommandBase
 from gfal_cli.fs import compute_checksum, url_to_fs
 from gfal_cli.utils import (
     human_readable_size,
@@ -87,9 +88,10 @@ class HighlightableRemoteDirectoryTree(Tree):
 
             self.app.call_from_thread(add_nodes)
         except Exception as e:
-            self.app.log_activity(f"Failed to load {path}: {e}", level="error")
+            error_msg = CommandBase._format_error(e)
+            self.app.log_activity(f"Failed to load {path}: {error_msg}", level="error")
             self.app.call_from_thread(
-                self.app.notify, f"Error loading {path}: {e}", severity="error"
+                self.app.notify, f"Error loading {path}: {error_msg}", severity="error"
             )
 
 
@@ -203,10 +205,11 @@ class GfalTui(App):
         ("s", "stat", "Stat Info"),
         ("c", "checksum", "Checksum"),
         ("r", "refresh", "Refresh"),
-        ("L", "toggle_log", "Toggle Log"),
         ("f5", "copy", "Copy"),
         ("x", "swap", "Swap Panes"),
         ("/", "search", "Search"),
+        ("j", "cursor_down", "Down"),
+        ("k", "cursor_up", "Up"),
         ("g", "cursor_top", "Top"),
         ("G", "cursor_bottom", "Bottom"),
         Binding("v", "toggle_ssl", "SSL [OFF]", show=True),
@@ -224,6 +227,7 @@ class GfalTui(App):
             with Vertical(classes="pane", id="local-pane"):
                 yield Label("Source (Local)", classes="pane-header")
                 tree = HighlightableDirectoryTree("./", id="local-tree")
+                tree.show_root = False
                 tree.yanked_url = self.yanked_url
                 yield tree
             with Vertical(classes="pane", id="remote-pane"):
@@ -233,6 +237,7 @@ class GfalTui(App):
                     id="remote-tree",
                     ssl_verify=self.ssl_verify,
                 )
+                tree.show_root = False
                 tree.yanked_url = self.yanked_url
                 yield tree
         yield RichLog(id="log-window", auto_scroll=True, max_lines=1000)
@@ -347,29 +352,27 @@ class GfalTui(App):
         """Focus the right pane (remote tree)."""
         self.query_one("#remote-tree").focus()
 
+    def action_cursor_up(self) -> None:
+        """Move cursor up in the focused tree."""
+        with suppress(Exception):
+            self.query_one("Tree:focus").action_cursor_up()
+
+    def action_cursor_down(self) -> None:
+        """Move cursor down in the focused tree."""
+        with suppress(Exception):
+            self.query_one("Tree:focus").action_cursor_down()
+
     def action_cursor_top(self) -> None:
         """Move cursor to the top of the focused tree."""
         with suppress(Exception):
             tree = self.query_one("Tree:focus")
-            target = tree.root
-            if not tree.show_root and tree.root.children:
-                target = tree.root.children[0]
-            tree.select_node(target)
-            tree.scroll_to_node(target)
+            tree.cursor_line = 0
 
     def action_cursor_bottom(self) -> None:
         """Move cursor to the bottom of the focused tree."""
         with suppress(Exception):
             tree = self.query_one("Tree:focus")
-
-            def get_last(node):
-                if node.is_expanded and node.children:
-                    return get_last(node.children[-1])
-                return node
-
-            last_node = get_last(tree.root)
-            tree.select_node(last_node)
-            tree.scroll_to_node(last_node)
+            tree.cursor_line = tree.line_count - 1
 
     async def update_remote(self, url: str):
         self.log_activity(f"Updating remote to: {url} (verify={self.ssl_verify})")
@@ -470,7 +473,15 @@ class GfalTui(App):
                     )
                 )
             except Exception as e:
-                self.log_activity(f"Stat failed for {path}: {e}", level="error")
+                error_msg = CommandBase._format_error(e)
+                self.log_activity(f"Stat failed for {path}: {error_msg}", level="error")
+                self.call_from_thread(
+                    lambda: self.push_screen(
+                        MessageModal(
+                            f"Stat failed for {path}:\n{error_msg}", title="Stat Error"
+                        )
+                    )
+                )
 
         self.run_worker(get_stat, thread=True)
 
@@ -532,7 +543,10 @@ class GfalTui(App):
                         f"Checksum not supported for {path}", level="warning"
                     )
             except Exception as e:
-                self.log_activity(f"Checksum failed for {path}: {e}", level="error")
+                error_msg = CommandBase._format_error(e)
+                self.log_activity(
+                    f"Checksum failed for {path}: {error_msg}", level="error"
+                )
 
         self.run_worker(get_checksum, thread=True)
 
@@ -708,7 +722,7 @@ class GfalTui(App):
             # Refresh both trees to show the new content
             self.call_from_thread(self.action_refresh)
         except Exception as e:
-            error_msg = str(e)
+            error_msg = CommandBase._format_error(e)
             self.log_activity(f"Copy failed: {error_msg}", level="error")
             self.call_from_thread(
                 lambda: self.push_screen(

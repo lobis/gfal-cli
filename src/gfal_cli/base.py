@@ -298,6 +298,13 @@ class CommandBase:
             if url_str:
                 return f"{url_str}: {description}"
             return f"{description}"
+        # CERN hint
+        if "cern.ch" in msg.lower() and any(
+            term in msg.lower()
+            for term in ("timeout", "connection", "unreachable", "refused", "gai")
+        ):
+            return f"{msg}: Could not connect. Are you on the CERN VPN?"
+
         # Last resort: str(e) was empty (e.g. NotImplementedError()).  Show the
         # exception type so the user sees something actionable instead of a
         # blank "ERROR:" line.
